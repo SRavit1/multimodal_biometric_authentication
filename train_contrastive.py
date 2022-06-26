@@ -251,7 +251,7 @@ def train(model, optimizer, logger, data_params, args, scheduler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='conf/tmp.conf', type=str,
+    parser.add_argument('--config', default='conf/train.conf', type=str,
                         help='the config file')
     parser.add_argument('--pretrained', default=None, type=str,
                         help='the pretrained model')
