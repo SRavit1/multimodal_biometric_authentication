@@ -1,85 +1,21 @@
-'''
-In this version, the data set is changed,
-'''
 import os
 import argparse
 import configparser
-import numpy as np
 from tqdm import tqdm
-import random
-import h5py
-import math
 
 import torch
 from torch.utils.data import DataLoader
 from torch import optim
-import torch.nn.functional as F
-from torch.utils.data import Dataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from utils_py.utils_pytorch import reduce_lr, increase_margin
 
 from utils import get_logger_2, check_dir
+from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
 from dataset import MultimodalContrastiveDataset
+from loss import loss_calculator
 
-def select_threshold(score, ratio):
-    '''
-    :param score: The cosine score between vectors, shape:[batch_size]
-    :param ratio: The score ratio above the threshold
-    :return: The selected threshold
-    '''
-    score_detach = score.detach()
-    length = score.shape[0]
-
-    # # ------------------------ original version ------------------------
-    # threshold = -1.0
-    # score_descend = torch.sort(score_detach, descending=True)[0]
-
-    # for i in range(length):
-    #     if (i+1) / length > ratio:
-    #         threshold = score_descend[i]
-    #         break
-    # index = score_detach > threshold
-    # # ------------------------ original version ------------------------
-
-    # --------------------------- new version --------------------------
-    score_descend, index = torch.sort(score_detach, descending=True)
-    select_len = math.ceil(ratio * length)
-    threshold = score_descend[select_len - 1]
-    index = index[:select_len]
-    # --------------------------- new version --------------------------
-
-    return threshold, index
-
-def write_conf(read_path, store_path):
-    '''
-    store the config file in exp dir
-    :param read_path: the conf path to read
-    :param store_path: the conf path to write
-    '''
-    with open(read_path,'r') as f_r, open(store_path,'w') as f_w:
-        lines = f_r.readlines()
-        f_w.writelines(lines)
-
-def loss_calculator(input1, input2, label, ratio):
-    pos_input1 = input1[label == 1]
-    pos_input2 = input2[label == 1]
-    neg_input1 = input1[label == 0]
-    neg_input2 = input2[label == 0]
-
-    pos_score = F.cosine_similarity(pos_input1, pos_input2) * (-1.0)
-    neg_score = F.cosine_similarity(neg_input1, neg_input2)
-    total_loss = torch.mean(neg_score) + torch.mean(pos_score) + 2.0
-
-    pos_threshold, pos_index = select_threshold(pos_score, ratio)
-    neg_threshold, neg_index = select_threshold(neg_score, ratio)
-
-    loss = torch.mean(neg_score[neg_index]) + torch.mean(pos_score[pos_index]) + 2.0  # in [0.0, 4.0]
-
-    return loss, total_loss, pos_threshold, neg_threshold
-
-def train(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler):
+def train_fusion(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler):
     model.train()
 
     max_iter = args.max_epoch * data_params['h5_file_num']
@@ -202,7 +138,9 @@ def main():
 
     face_model = resnet.resnet18(num_classes=512)
     audio_model = resnet.resnet18(num_classes=512, input_channels=1)
-    train(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler)
+    #train_audio(audio_model, audio_optimizer, logger, audio_scheduler)
+    #train_face()
+    train_fusion(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler)
 
 if __name__ == '__main__':
     main()
