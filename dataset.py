@@ -157,8 +157,6 @@ class MultimodalContrastiveDataset(Dataset):
         self.spk_list = list(set(os.listdir(face_dir)) & set(os.listdir(utt_dir)))
         self.spk_num = len(self.spk_list)
 
-        self.counter = 0
-
     def __getitem__(self, idx):
         choice = random.randint(0, 1)  # to generate positive or negative pair
 
@@ -172,8 +170,30 @@ class MultimodalContrastiveDataset(Dataset):
         face1, utt1 = get_random_face_audio(spk1)
         face2, utt2 = get_random_face_audio(spk2)
 
-        self.counter += 1
         return label, face1, utt1, face2, utt2
+
+    def __len__(self):
+        return self.length
+
+class MultimodalTripletDataset(Dataset):
+    def __init__(self, face_dir=face_dir, utt_dir=utt_dir, length=64 * 10000):
+        super(MultimodalContrastiveDataset, self).__init__()
+
+        self.face_dir = face_dir
+        self.utt_dir = utt_dir
+        self.length = length
+
+        self.spk_list = list(set(os.listdir(face_dir)) & set(os.listdir(utt_dir)))
+        self.spk_num = len(self.spk_list)
+
+    def __getitem__(self, idx):
+        spk1, spk2 = random.sample(self.spk_list, 2)
+
+        face1, utt1 = get_random_face_audio(spk1)
+        face2, utt2 = get_random_face_audio(spk1)
+        face3, utt3 = get_random_face_audio(spk2)
+
+        return label, face1, utt1, face2, utt2, face3, utt3
 
     def __len__(self):
         return self.length
