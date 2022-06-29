@@ -188,7 +188,14 @@ class MultimodalContrastiveDataset(Dataset):
         face1, utt1 = get_random_spk_sample(spk1, select_face=self.select_face)
         face2, utt2 = get_random_spk_sample(spk2, select_audio=self.select_audio)
 
-        return label, face1, utt1, face2, utt2
+        if self.select_face and self.select_audio:
+            return label, face1, utt1, face2, utt2
+        elif self.select_face:
+            return label, face1, face2
+        elif self.select_audio:
+            return label, utt1, utt2
+        else:
+            return None
 
     def __len__(self):
         return self.length

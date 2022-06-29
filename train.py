@@ -15,60 +15,20 @@ import models.resnet as resnet
 from dataset import MultimodalContrastiveDataset
 from loss import loss_calculator
 
-def train_fusion(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler):
+def train_audio(model, optimizer, logger, scheduler, params):
     model.train()
 
-    max_iter = args.max_epoch * data_params['h5_file_num']
-    for epoch in tqdm(range(args.max_epoch), position=0):
-        dataset = MultimodalContrastiveDataset(length=data_params['batch_size'] * data_params['batch_iters'])
-        train_loader = DataLoader(dataset, batch_size=data_params['batch_size'], shuffle=False,
-                                    num_workers=data_params['num_workers'])
+    for epoch in tqdm(range(params["optim_params"]['audio_end_epoch']), position=0):
+        dataset = MultimodalContrastiveDataset(length=params["data_params"]['audio_batch_size'] * params["data_params"]['audio_batch_iters'], select_face=False)
+        train_loader = DataLoader(dataset, batch_size=params["data_params"]['audio_batch_size'], shuffle=False,
+                                    num_workers=params["data_params"]['num_workers'])
 
-        for labels, face1, utt1, face2, utt2 in tqdm(train_loader, position=1):
-            optimizer.zero_grad()
-            
-            faces = torch.cat((face1, face2), dim=0)
-            utts = torch.cat((utt1, utt2), dim=0)
-
-            face_data = face_model(faces)
-            utt_data = audio_model(utts)
-
-            half_index = int(len(face_data)/2)
-            face_data1 = face_data[:half_index]
-            face_data2 = face_data[half_index:]
-            utt_data1 = utt_data[:half_index]
-            utt_data2 = utt_data[half_index:]
-
-            face_input = torch.cat((face_data1, face_data2), dim=0)
-            utt_input = torch.cat((utt_data1, utt_data2), dim=0)
-
-            if args.use_gpu:
-                face_input = face_input.cuda()
-                utt_input = utt_input.cuda()
+        for labels, utt1, utt2 in tqdm(train_loader, position=1):
+            if params["optim_params"]['use_gpu']:
                 labels = labels.cuda()
+                utt1 = utt1.cuda()
+                utt2 = utt2.cuda()
 
-            out, _, _ = model(face_input, utt_input)
-            pair_num = out.shape[0] // 2
-            assert pair_num == data_params['batch_size']
-
-            loss, total_loss, pos_threshold, neg_threshold = loss_calculator(out[0:pair_num], out[pair_num:], labels, args.ratio)
-
-            if args.partial_loss:
-                loss.backward()
-            else:
-                total_loss.backward()
-            optimizer.step()
-            scheduler.step(loss)
-
-def train_audio(model, optimizer, logger, scheduler, data_params, args):
-    model.train()
-
-    for epoch in tqdm(range(args.audio_end_epoch), position=0):
-        dataset = MultimodalContrastiveDataset(length=data_params['audio_batch_size'] * data_params['audio_batch_iters'])
-        train_loader = DataLoader(dataset, batch_size=data_params['audio_batch_size'], shuffle=False,
-                                    num_workers=data_params['num_workers'])
-
-        for labels, face1, utt1, face2, utt2 in tqdm(train_loader, position=1):
             optimizer.zero_grad()
             
             utts = torch.cat((utt1, utt2), dim=0)
@@ -85,18 +45,23 @@ def train_audio(model, optimizer, logger, scheduler, data_params, args):
             optimizer.step()
             scheduler.step(loss)
 
-def train_face(model, optimizer, logger, scheduler, data_params, args):
+def train_face(model, optimizer, logger, scheduler, params):
     model.train()
 
-    for epoch in tqdm(range(args.audio_end_epoch), position=0):
-        dataset = MultimodalContrastiveDataset(length=data_params['face_batch_size'] * data_params['batch_iters'])
-        train_loader = DataLoader(dataset, batch_size=data_params['face_batch_size'], shuffle=False,
-                                    num_workers=data_params['num_workers'])
+    for epoch in tqdm(range(params["optim_params"]['face_end_epoch']), position=0):
+        dataset = MultimodalContrastiveDataset(length=params["data_params"]['face_batch_size'] * params["data_params"]['batch_iters'], select_audio=False)
+        train_loader = DataLoader(dataset, batch_size=params["data_params"]['face_batch_size'], shuffle=False,
+                                    num_workers=params["data_params"]['num_workers'])
 
-        for labels, face1, utt1, face2, utt2 in tqdm(train_loader, position=1):
+        for labels, face1, face2 in tqdm(train_loader, position=1):
+            if params["optim_params"]['use_gpu']:
+                labels = labels.cuda()
+                face1 = face1.cuda()
+                face2 = face2.cuda()
+            
             optimizer.zero_grad()
             
-            faces = torch.cat((face1, face1), dim=0)
+            faces = torch.cat((face1, face2), dim=0)
 
             face_data = model(faces)
 
@@ -107,6 +72,54 @@ def train_face(model, optimizer, logger, scheduler, data_params, args):
             loss = torch.mean(face_data1-face_data2) #...
 
             loss.backward()
+            optimizer.step()
+            scheduler.step(loss)
+
+def train_fusion(model, face_model, audio_model, optimizer, logger, scheduler, params):
+    model.train()
+
+    max_iter = params["optim_params"]["max_epoch"] * params["data_params"]['h5_file_num']
+    for epoch in tqdm(range(params["optim_params"]["max_epoch"]), position=0):
+        dataset = MultimodalContrastiveDataset(length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'])
+        train_loader = DataLoader(dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
+                                    num_workers=params["data_params"]['num_workers'])
+
+        for labels, face1, utt1, face2, utt2 in tqdm(train_loader, position=1):
+            optimizer.zero_grad()
+
+            if params["optim_params"]['use_gpu']:
+                face1 = face1.cuda()
+                utt1 = utt1.cuda()
+                face2 = face2.cuda()
+                utt2 = utt2.cuda()
+                labels = labels.cuda()
+            
+            faces = torch.cat((face1, face2), dim=0)
+            utts = torch.cat((utt1, utt2), dim=0)
+
+            with torch.no_grad():
+                face_data = face_model(faces)
+                utt_data = audio_model(utts)
+
+            half_index = int(len(face_data)/2)
+            face_data1 = face_data[:half_index]
+            face_data2 = face_data[half_index:]
+            utt_data1 = utt_data[:half_index]
+            utt_data2 = utt_data[half_index:]
+
+            face_input = torch.cat((face_data1, face_data2), dim=0)
+            utt_input = torch.cat((utt_data1, utt_data2), dim=0)
+
+            out, _, _ = model(face_input, utt_input)
+            pair_num = out.shape[0] // 2
+            assert pair_num == params["data_params"]['batch_size']
+
+            loss, total_loss, pos_threshold, neg_threshold = loss_calculator(out[0:pair_num], out[pair_num:], labels, params["optim_params"]['ratio'])
+
+            if params["loss_params"]['partial_loss']:
+                loss.backward()
+            else:
+                total_loss.backward()
             optimizer.step()
             scheduler.step(loss)
 
@@ -123,82 +136,73 @@ def main():
     config.optionxform=str
     config.read(args.config)
 
-    exp_section = config['exp']
-    model_section = config['model']
-    loss_section = config['loss']
-    data_section = config['data']
-    optim_section = config['optimization']
-
-    exp_params = {k: eval(v) for k, v in exp_section.items()}
-    model_params = {k: eval(v) for k, v in model_section.items()}
-    loss_params = {k: eval(v) for k, v in loss_section.items()}
-    data_params = {k: eval(v) for k, v in data_section.items()}
-    optim_params = {k: eval(v) for k, v in optim_section.items()}
+    params = {
+        "exp_params": {k: eval(v) for k, v in config['exp'].items()},
+        "model_params": {k: eval(v) for k, v in config['model'].items()},
+        "loss_params": {k: eval(v) for k, v in config['loss'].items()},
+        "data_params": {k: eval(v) for k, v in config['data'].items()},
+        "optim_params": {k: eval(v) for k, v in config['optimization'].items()}
+    }
     # *********************** process config ***********************
 
     # setup logger
-    check_dir(exp_params['exp_dir'])
-    logger = get_logger_2(os.path.join(exp_params['exp_dir'],'train.log'))
+    check_dir(params["exp_params"]['exp_dir'])
+    logger = get_logger_2(os.path.join(params["exp_params"]['exp_dir'], 'train.log'))
 
     # write config file to expdir
-    store_path = os.path.join(exp_params['exp_dir'], 'train.conf')
+    store_path = os.path.join(params["exp_params"]['exp_dir'], 'train.conf')
     write_conf(args.config, store_path)
 
-    # model init
-    args.use_gpu = optim_params['use_gpu'] and torch.cuda.is_available()
-    model = System(**model_params)
+    # models init
+    params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
+    fusion_model = System(**params["model_params"])
+    face_model = resnet.resnet18(num_classes=512)
+    audio_model = resnet.resnet18(num_classes=512, input_channels=1)
 
     # load pretrained model
     if args.pretrained is not None:
         logger.info('Load pretrained model from {}'.format(args.pretrained))
         state_dict = torch.load(args.pretrained, map_location=lambda storage, loc: storage)
-        model.load_state_dict(state_dict)
+        fusion_model.load_state_dict(state_dict)
 
-    if args.use_gpu:
-        model = model.cuda()
+    # convert models to cuda
+    if params["optim_params"]['use_gpu']:
+        fusion_model = fusion_model.cuda()
+        face_model = face_model.cuda()
+        audio_model = audio_model.cuda()
 
-    face_model = resnet.resnet18(num_classes=512)
-    audio_model = resnet.resnet18(num_classes=512, input_channels=1)
-
-    if optim_params['type'] == 'SGD':
-        optimizer = optim.SGD(model.parameters(), lr=optim_params['lr'], momentum=optim_params['momentum'],
-                              weight_decay=optim_params['weight_decay'], nesterov=True)
+    # intialize optimizers
+    if params["optim_params"]['type'] == 'SGD':
+        fusion_optimizer = optim.SGD(fusion_model.parameters(), lr=params["optim_params"]['lr'], momentum=params["optim_params"]['momentum'],
+                              weight_decay=params["optim_params"]['weight_decay'], nesterov=True)
     else:
-        optimizer = optim.Adam(model.parameters(), lr=optim_params['lr'],  betas=(0.9, 0.999),
-                              weight_decay=optim_params['weight_decay'])
-    audio_optimizer = optim.Adam(audio_model.parameters(), lr=optim_params['audio_lr'])
-    face_optimizer = optim.Adam(face_model.parameters(), lr=optim_params['face_lr'])
+        fusion_optimizer = optim.Adam(fusion_model.parameters(), lr=params["optim_params"]['lr'],  betas=(0.9, 0.999),
+                              weight_decay=params["optim_params"]['weight_decay'])
+    audio_optimizer = optim.Adam(audio_model.parameters(), lr=params["optim_params"]['audio_lr'])
+    face_optimizer = optim.Adam(face_model.parameters(), lr=params["optim_params"]['face_lr'])
 
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=optim_params['factor'],
-                                  patience=optim_params['patience'])
-    audio_scheduler = CosineAnnealingLR(audio_optimizer, optim_params['audio_end_epoch'], 
-        optim_params['audio_lr_min'])
-    face_scheduler = CosineAnnealingLR(audio_optimizer, optim_params['face_end_epoch'], 
-        optim_params['face_lr_min'])
+    # initialize schedulers
+    fusion_scheduler = ReduceLROnPlateau(fusion_optimizer, 'min', factor=params["optim_params"]['factor'],
+                                  patience=params["optim_params"]['patience'])
+    audio_scheduler = CosineAnnealingLR(audio_optimizer, params["optim_params"]['audio_end_epoch'], 
+        params["optim_params"]['audio_lr_min'])
+    face_scheduler = CosineAnnealingLR(audio_optimizer, params["optim_params"]['face_end_epoch'], 
+        params["optim_params"]['face_lr_min'])
 
-    checkpoint_dir = os.path.join(exp_params['exp_dir'],'models')
+    # check existence of checkpoint dir
+    checkpoint_dir = os.path.join(params["exp_params"]['exp_dir'],'models')
     check_dir(checkpoint_dir)
-    checkpoint_format = os.path.join(checkpoint_dir,'epoch-{}.th')
 
-    args.max_epoch = optim_params['max_epoch']
-    args.checkpoint_format = checkpoint_format
-    args.use_scheduler = optim_params['use_scheduler']
-    args.scheduler_type = optim_params['scheduler_type']
-    args.lr = optim_params['lr']
-    args.final_lr = optim_params['final_lr']
-    args.ratio = optim_params['ratio']
-    args.initial_ratio = args.ratio
-    args.final_ratio = optim_params['final_ratio']
-    args.update_ratio = optim_params['update_ratio']
-    args.partial_loss = loss_params['partial_loss']
-    args.audio_end_epoch = optim_params['audio_end_epoch']
-
-    num_params = sum(param.numel() for param in model.parameters())
-    logger.info('Number of parmeters:{}'.format(num_params))
+    fusion_num_params = sum(param.numel() for param in fusion_model.parameters())
+    logger.info('Fusion number of parmeters:{}'.format(fusion_num_params))
+    audio_num_params = sum(param.numel() for param in audio_model.parameters())
+    logger.info('Audio number of parmeters:{}'.format(audio_num_params))
+    face_num_params = sum(param.numel() for param in face_model.parameters())
+    logger.info('Fusion number of parmeters:{}'.format(face_num_params))
     
-    train_audio(audio_model, audio_optimizer, logger, audio_scheduler, data_params, args)
-    train_face(face_model, face_optimizer, logger, face_scheduler, data_params, args)
-    train_fusion(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler)
+    train_audio(audio_model, audio_optimizer, logger, audio_scheduler, params)
+    train_face(face_model, face_optimizer, logger, face_scheduler, params)
+    train_fusion(fusion_model, face_model, audio_model, fusion_optimizer, logger, fusion_scheduler, params)
 
 if __name__ == '__main__':
     main()
