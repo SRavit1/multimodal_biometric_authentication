@@ -131,23 +131,38 @@ def utt_path_to_utt(utt_path, clip_len=3):
     utt = transform(audio)
     return utt
 
-def get_random_face_audio(spk):
+def get_random_face(spk_face_dir, video_id):
+    spk_video_face_dir = os.path.join(spk_face_dir, video_id)
+    
+    face_path = os.path.join(spk_video_face_dir, random.choice(os.listdir(spk_video_face_dir)))
+
+    face = face_path_to_face(face_path)
+    return face
+
+def get_random_audio(spk_utt_dir, video_id):
+    spk_video_utt_dir = os.path.join(spk_utt_dir, video_id)
+    
+    utt_path = os.path.join(spk_video_utt_dir, random.choice(os.listdir(spk_video_utt_dir)))
+
+    utt = utt_path_to_utt(utt_path)
+    return utt
+
+def get_random_spk_sample(spk, select_face=True, select_audio=True):
     spk_face_dir = os.path.join(train_path, "face", spk)
     spk_utt_dir = os.path.join(train_path, "utt", spk)
 
     video_id = random.choice(os.listdir(spk_face_dir))
-    spk_video_face_dir = os.path.join(spk_face_dir, video_id)
-    spk_video_utt_dir = os.path.join(spk_utt_dir, video_id)
-    
-    face_path = os.path.join(spk_video_face_dir, random.choice(os.listdir(spk_video_face_dir)))
-    utt_path = os.path.join(spk_video_utt_dir, random.choice(os.listdir(spk_video_utt_dir)))
+    face = None
+    utt = None
 
-    face = face_path_to_face(face_path)
-    utt = utt_path_to_utt(utt_path)
+    if select_face:
+        face = get_random_face(spk_face_dir, video_id)
+    if select_audio:
+        utt = get_random_audio(spk_utt_dir, video_id)
     return face, utt
 
 class MultimodalContrastiveDataset(Dataset):
-    def __init__(self, face_dir=face_dir, utt_dir=utt_dir, length=64 * 10000):
+    def __init__(self, face_dir=face_dir, utt_dir=utt_dir, length=64 * 10000, select_face=True, select_audio=True):
         super(MultimodalContrastiveDataset, self).__init__()
 
         self.face_dir = face_dir
@@ -156,6 +171,9 @@ class MultimodalContrastiveDataset(Dataset):
 
         self.spk_list = list(set(os.listdir(face_dir)) & set(os.listdir(utt_dir)))
         self.spk_num = len(self.spk_list)
+
+        self.select_face = select_face
+        self.select_audio = select_audio
 
     def __getitem__(self, idx):
         choice = random.randint(0, 1)  # to generate positive or negative pair
@@ -167,33 +185,10 @@ class MultimodalContrastiveDataset(Dataset):
             spk2 = spk1
 
         label = choice
-        face1, utt1 = get_random_face_audio(spk1)
-        face2, utt2 = get_random_face_audio(spk2)
+        face1, utt1 = get_random_spk_sample(spk1, select_face=self.select_face)
+        face2, utt2 = get_random_spk_sample(spk2, select_audio=self.select_audio)
 
         return label, face1, utt1, face2, utt2
-
-    def __len__(self):
-        return self.length
-
-class MultimodalTripletDataset(Dataset):
-    def __init__(self, face_dir=face_dir, utt_dir=utt_dir, length=64 * 10000):
-        super(MultimodalContrastiveDataset, self).__init__()
-
-        self.face_dir = face_dir
-        self.utt_dir = utt_dir
-        self.length = length
-
-        self.spk_list = list(set(os.listdir(face_dir)) & set(os.listdir(utt_dir)))
-        self.spk_num = len(self.spk_list)
-
-    def __getitem__(self, idx):
-        spk1, spk2 = random.sample(self.spk_list, 2)
-
-        face1, utt1 = get_random_face_audio(spk1)
-        face2, utt2 = get_random_face_audio(spk1)
-        face3, utt3 = get_random_face_audio(spk2)
-
-        return label, face1, utt1, face2, utt2, face3, utt3
 
     def __len__(self):
         return self.length

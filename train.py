@@ -60,7 +60,6 @@ def train_fusion(model, face_model, audio_model, optimizer, logger, data_params,
             optimizer.step()
             scheduler.step(loss)
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='conf/train.conf', type=str,
@@ -108,12 +107,16 @@ def main():
     if args.use_gpu:
         model = model.cuda()
 
+    face_model = resnet.resnet18(num_classes=512)
+    audio_model = resnet.resnet18(num_classes=512, input_channels=1)
+
     if optim_params['type'] == 'SGD':
         optimizer = optim.SGD(model.parameters(), lr=optim_params['lr'], momentum=optim_params['momentum'],
                               weight_decay=optim_params['weight_decay'], nesterov=True)
     else:
         optimizer = optim.Adam(model.parameters(), lr=optim_params['lr'],  betas=(0.9, 0.999),
                               weight_decay=optim_params['weight_decay'])
+
     scheduler = ReduceLROnPlateau(optimizer, 'min', factor=optim_params['factor'],
                                   patience=optim_params['patience'])
 
@@ -135,11 +138,7 @@ def main():
 
     num_params = sum(param.numel() for param in model.parameters())
     logger.info('Number of parmeters:{}'.format(num_params))
-
-    face_model = resnet.resnet18(num_classes=512)
-    audio_model = resnet.resnet18(num_classes=512, input_channels=1)
-    #train_audio(audio_model, audio_optimizer, logger, audio_scheduler)
-    #train_face()
+    
     train_fusion(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler)
 
 if __name__ == '__main__':
