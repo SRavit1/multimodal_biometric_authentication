@@ -6,7 +6,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 from torch import optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 
 from utils import get_logger_2, check_dir
 from utils_py.utils_common import write_conf
@@ -57,6 +57,56 @@ def train_fusion(model, face_model, audio_model, optimizer, logger, data_params,
                 loss.backward()
             else:
                 total_loss.backward()
+            optimizer.step()
+            scheduler.step(loss)
+
+def train_audio(model, optimizer, logger, scheduler, data_params, args):
+    model.train()
+
+    for epoch in tqdm(range(args.audio_end_epoch), position=0):
+        dataset = MultimodalContrastiveDataset(length=data_params['audio_batch_size'] * data_params['audio_batch_iters'])
+        train_loader = DataLoader(dataset, batch_size=data_params['audio_batch_size'], shuffle=False,
+                                    num_workers=data_params['num_workers'])
+
+        for labels, face1, utt1, face2, utt2 in tqdm(train_loader, position=1):
+            optimizer.zero_grad()
+            
+            utts = torch.cat((utt1, utt2), dim=0)
+
+            utt_data = model(utts)
+
+            half_index = int(len(utt_data)/2)
+            utt_data1 = utt_data[:half_index]
+            utt_data2 = utt_data[half_index:]
+
+            loss = torch.mean(utt_data1-utt_data2) #...
+
+            loss.backward()
+            optimizer.step()
+            scheduler.step(loss)
+
+def train_face(model, optimizer, logger, scheduler, data_params, args):
+    model.train()
+
+    for epoch in tqdm(range(args.audio_end_epoch), position=0):
+        dataset = MultimodalContrastiveDataset(length=data_params['face_batch_size'] * data_params['batch_iters'])
+        train_loader = DataLoader(dataset, batch_size=data_params['face_batch_size'], shuffle=False,
+                                    num_workers=data_params['num_workers'])
+
+        for labels, face1, utt1, face2, utt2 in tqdm(train_loader, position=1):
+            optimizer.zero_grad()
+            
+            faces = torch.cat((face1, face1), dim=0)
+
+            face_data = model(faces)
+
+            half_index = int(len(face_data)/2)
+            face_data1 = face_data[:half_index]
+            face_data2 = face_data[half_index:]
+
+            loss = torch.mean(face_data1-face_data2) #...
+
+            loss.backward()
             optimizer.step()
             scheduler.step(loss)
 
@@ -116,9 +166,15 @@ def main():
     else:
         optimizer = optim.Adam(model.parameters(), lr=optim_params['lr'],  betas=(0.9, 0.999),
                               weight_decay=optim_params['weight_decay'])
+    audio_optimizer = optim.Adam(audio_model.parameters(), lr=optim_params['audio_lr'])
+    face_optimizer = optim.Adam(face_model.parameters(), lr=optim_params['face_lr'])
 
     scheduler = ReduceLROnPlateau(optimizer, 'min', factor=optim_params['factor'],
                                   patience=optim_params['patience'])
+    audio_scheduler = CosineAnnealingLR(audio_optimizer, optim_params['audio_end_epoch'], 
+        optim_params['audio_lr_min'])
+    face_scheduler = CosineAnnealingLR(audio_optimizer, optim_params['face_end_epoch'], 
+        optim_params['face_lr_min'])
 
     checkpoint_dir = os.path.join(exp_params['exp_dir'],'models')
     check_dir(checkpoint_dir)
@@ -135,10 +191,13 @@ def main():
     args.final_ratio = optim_params['final_ratio']
     args.update_ratio = optim_params['update_ratio']
     args.partial_loss = loss_params['partial_loss']
+    args.audio_end_epoch = optim_params['audio_end_epoch']
 
     num_params = sum(param.numel() for param in model.parameters())
     logger.info('Number of parmeters:{}'.format(num_params))
     
+    train_audio(audio_model, audio_optimizer, logger, audio_scheduler, data_params, args)
+    train_face(face_model, face_optimizer, logger, face_scheduler, data_params, args)
     train_fusion(model, face_model, audio_model, optimizer, logger, data_params, args, scheduler)
 
 if __name__ == '__main__':
