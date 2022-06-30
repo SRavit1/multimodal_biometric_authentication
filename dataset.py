@@ -16,7 +16,7 @@ import numpy as np
 import librosa
 
 dataset_path = "/home/sravit/datasets/VoxCeleb-multimodal"
-train_path = os.path.join(dataset_path, "VoxCeleb1/test") #"VoxCeleb2/dev"
+train_path = os.path.join(dataset_path, "VoxCeleb1/dev") #"VoxCeleb2/dev"
 train_face_dir = os.path.join(train_path, "face")
 train_utt_dir = os.path.join(train_path, "utt")
 test_path = os.path.join(dataset_path, "VoxCeleb1/test")

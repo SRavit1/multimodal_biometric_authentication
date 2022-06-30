@@ -6,6 +6,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Adapted from https://github.com/pytorch/examples/blob/main/imagenet/main.py
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
+
 class AngularPenaltySMLoss(nn.Module):
 
     def __init__(self, in_features, out_features, loss_type='arcface', eps=1e-7, s=None, m=None):
@@ -62,7 +79,9 @@ class AngularPenaltySMLoss(nn.Module):
         excl = torch.cat([torch.cat((wf[i, :y], wf[i, y+1:])).unsqueeze(0) for i, y in enumerate(labels)], dim=0)
         denominator = torch.exp(numerator) + torch.sum(torch.exp(self.s * excl), dim=1)
         L = numerator - torch.log(denominator)
-        return -torch.mean(L)
+        loss = -torch.mean(L)
+        acc1, acc5 = accuracy(wf, labels, topk=(1, 5))
+        return loss, acc1, acc5
 
 def select_threshold(score, ratio):
     '''
@@ -107,6 +126,5 @@ def loss_calculator(input1, input2, label, ratio):
     neg_threshold, neg_index = select_threshold(neg_score, ratio)
 
     loss = torch.mean(neg_score[neg_index]) + torch.mean(pos_score[pos_index]) + 2.0  # in [0.0, 4.0]
-
     return loss, total_loss, pos_threshold, neg_threshold
 

@@ -25,7 +25,7 @@ num_classes = 1211 #5994
 def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader, logger, params):
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
-        for faces, labels in tqdm(train_loader, position=1):
+        for batch_no, (faces, labels) in tqdm(enumerate(train_loader), position=1):
             if params["optim_params"]['use_gpu']:
                 faces = faces.cuda()
                 labels = labels.cuda()
@@ -34,12 +34,16 @@ def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader
 
             face_embeddings = model(faces)
 
-            loss = criterion(face_embeddings, labels)
+            loss, acc1, acc5 = criterion(face_embeddings, labels)
             loss.backward()
             optimizer.step()
+            if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
+                logger.info("Epoch [{}] Batch: {}/{}, Loss: {:.4f}, Acc1: {:.4f}, Acc 5: {:.4f}".format(epoch, batch_no, len(train_loader), loss, float(acc1), float(acc5)))
         scheduler.step(loss)
-        model.test()
-        eer = evaluate_single_modality(model, test_loader, params)
+        if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
+            model.test()
+            eer = evaluate_single_modality(model, test_loader, params)
+            logger.info("Validation EER: {.4f}".format(eer))
 
 def main():
     # *********************** process config ***********************
@@ -94,7 +98,7 @@ def main():
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor()
         ]))
-    face_train_loader = DataLoader(face_train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
+    face_train_loader = DataLoader(face_train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
                                 num_workers=params["data_params"]['num_workers'])
     face_test_dataset = MultimodalPairDataset(length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'],
                                 select_face=True, select_audio=False)
