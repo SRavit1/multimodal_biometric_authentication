@@ -161,9 +161,9 @@ def get_random_spk_sample(spk, select_face=True, select_audio=True):
         utt = get_random_audio(spk_utt_dir, video_id)
     return face, utt
 
-class MultimodalContrastiveDataset(Dataset):
+class MultimodalPairDataset(Dataset):
     def __init__(self, face_dir=face_dir, utt_dir=utt_dir, length=64 * 10000, select_face=True, select_audio=True):
-        super(MultimodalContrastiveDataset, self).__init__()
+        super(MultimodalPairDataset, self).__init__()
 
         self.face_dir = face_dir
         self.utt_dir = utt_dir
@@ -196,6 +196,27 @@ class MultimodalContrastiveDataset(Dataset):
             return label, utt1, utt2
         else:
             return None
+
+    def __len__(self):
+        return self.length
+
+class FaceDataset(Dataset):
+    def __init__(self, face_dir=face_dir, length=64 * 10000):
+        super(FaceDataset, self).__init__()
+
+        self.face_dir = face_dir
+        self.length = length
+
+        self.spk_list = os.listdir(face_dir)
+        self.spk_dict = dict((spk, id) for (id, spk) in enumerate(self.spk_list))
+        self.spk_num = len(self.spk_list)
+
+    def __getitem__(self, idx):
+        spk = random.choice(self.spk_list)
+        id = self.spk_dict[spk]
+        face, _ = get_random_spk_sample(spk, select_face=True, select_audio=False)
+
+        return face, id
 
     def __len__(self):
         return self.length

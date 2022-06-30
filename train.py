@@ -12,14 +12,19 @@ from utils import get_logger_2, check_dir
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
-from dataset import MultimodalContrastiveDataset
-from loss import loss_calculator
+
+from dataset import MultimodalPairDataset, FaceDataset
+from loss import loss_calculator, AngularPenaltySMLoss
+from evaluate import evaluate_single_modality
+
+emb_size = 512
+num_classes = 1211 #5994
 
 def train_audio(model, optimizer, logger, scheduler, params):
     model.train()
 
     for epoch in tqdm(range(params["optim_params"]['audio_end_epoch']), position=0):
-        dataset = MultimodalContrastiveDataset(length=params["data_params"]['audio_batch_size'] * params["data_params"]['audio_batch_iters'], select_face=False)
+        dataset = MultimodalPairDataset(length=params["data_params"]['audio_batch_size'] * params["data_params"]['audio_batch_iters'], select_face=False)
         train_loader = DataLoader(dataset, batch_size=params["data_params"]['audio_batch_size'], shuffle=False,
                                     num_workers=params["data_params"]['num_workers'])
 
@@ -45,42 +50,31 @@ def train_audio(model, optimizer, logger, scheduler, params):
             optimizer.step()
             scheduler.step(loss)
 
-def train_face(model, optimizer, logger, scheduler, params):
+def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader, logger, params):
     model.train()
 
     for epoch in tqdm(range(params["optim_params"]['face_end_epoch']), position=0):
-        dataset = MultimodalContrastiveDataset(length=params["data_params"]['face_batch_size'] * params["data_params"]['batch_iters'], select_audio=False)
-        train_loader = DataLoader(dataset, batch_size=params["data_params"]['face_batch_size'], shuffle=False,
-                                    num_workers=params["data_params"]['num_workers'])
-
-        for labels, face1, face2 in tqdm(train_loader, position=1):
+        for faces, labels in tqdm(train_loader, position=1):
             if params["optim_params"]['use_gpu']:
+                faces = faces.cuda()
                 labels = labels.cuda()
-                face1 = face1.cuda()
-                face2 = face2.cuda()
             
             optimizer.zero_grad()
-            
-            faces = torch.cat((face1, face2), dim=0)
 
-            face_data = model(faces)
+            face_embeddings = model(faces)
 
-            half_index = int(len(face_data)/2)
-            face_data1 = face_data[:half_index]
-            face_data2 = face_data[half_index:]
-
-            loss = torch.mean(face_data1-face_data2) #...
-
+            loss = criterion(face_embeddings, labels)
             loss.backward()
             optimizer.step()
             scheduler.step(loss)
+        eer = evaluate_single_modality(model, test_loader, params)
 
 def train_fusion(model, face_model, audio_model, optimizer, logger, scheduler, params):
     model.train()
 
     max_iter = params["optim_params"]["max_epoch"] * params["data_params"]['h5_file_num']
     for epoch in tqdm(range(params["optim_params"]["max_epoch"]), position=0):
-        dataset = MultimodalContrastiveDataset(length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'])
+        dataset = MultimodalPairDataset(length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'])
         train_loader = DataLoader(dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                     num_workers=params["data_params"]['num_workers'])
 
@@ -171,6 +165,8 @@ def main():
         face_model = face_model.cuda()
         audio_model = audio_model.cuda()
 
+    face_criterion = AngularPenaltySMLoss(emb_size, num_classes).cuda()
+
     # intialize optimizers
     if params["optim_params"]['type'] == 'SGD':
         fusion_optimizer = optim.SGD(fusion_model.parameters(), lr=params["optim_params"]['lr'], momentum=params["optim_params"]['momentum'],
@@ -179,7 +175,7 @@ def main():
         fusion_optimizer = optim.Adam(fusion_model.parameters(), lr=params["optim_params"]['lr'],  betas=(0.9, 0.999),
                               weight_decay=params["optim_params"]['weight_decay'])
     audio_optimizer = optim.Adam(audio_model.parameters(), lr=params["optim_params"]['audio_lr'])
-    face_optimizer = optim.Adam(face_model.parameters(), lr=params["optim_params"]['face_lr'])
+    face_optimizer = optim.Adam(list(set(face_model.parameters()) | set(face_criterion.fc.parameters())), lr=params["optim_params"]['face_lr'])
 
     # initialize schedulers
     fusion_scheduler = ReduceLROnPlateau(fusion_optimizer, 'min', factor=params["optim_params"]['factor'],
@@ -188,6 +184,14 @@ def main():
         params["optim_params"]['audio_lr_min'])
     face_scheduler = CosineAnnealingLR(audio_optimizer, params["optim_params"]['face_end_epoch'], 
         params["optim_params"]['face_lr_min'])
+
+    face_train_dataset = FaceDataset(length=params["data_params"]['face_batch_size'] * params["data_params"]['batch_iters'])
+    face_train_loader = DataLoader(face_train_dataset, batch_size=params["data_params"]['face_batch_size'], shuffle=False,
+                                num_workers=params["data_params"]['num_workers'])
+    face_test_dataset = MultimodalPairDataset(length=params["data_params"]['face_batch_size'] * params["data_params"]['batch_iters'],
+                                select_face=True, select_audio=False)
+    face_test_loader = DataLoader(face_test_dataset, batch_size=params["data_params"]['face_batch_size'], shuffle=False,
+                                num_workers=params["data_params"]['num_workers'])
 
     # check existence of checkpoint dir
     checkpoint_dir = os.path.join(params["exp_params"]['exp_dir'],'models')
@@ -200,9 +204,9 @@ def main():
     face_num_params = sum(param.numel() for param in face_model.parameters())
     logger.info('Fusion number of parmeters:{}'.format(face_num_params))
     
-    train_audio(audio_model, audio_optimizer, logger, audio_scheduler, params)
-    train_face(face_model, face_optimizer, logger, face_scheduler, params)
-    train_fusion(fusion_model, face_model, audio_model, fusion_optimizer, logger, fusion_scheduler, params)
+    #train_audio(audio_model, audio_optimizer, logger, audio_scheduler, params)
+    train_face(face_model, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_test_loader, logger, params)
+    #train_fusion(fusion_model, face_model, audio_model, fusion_optimizer, logger, fusion_scheduler, params)
 
 if __name__ == '__main__':
     main()
