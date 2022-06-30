@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 T = transforms
 import torchaudio.transforms as T_a
 
+from PIL import Image
 import random
 import os
 
@@ -22,65 +23,12 @@ test_path = os.path.join(dataset_path, "VoxCeleb1/test")
 test_face_dir = os.path.join(test_path, "face")
 test_utt_dir = os.path.join(test_path, "utt")
 
-# ******* FACE UTILS *******
-def motion_blur(img, kernel_size=15, vertical=True):
-    '''
-    reference: https://www.geeksforgeeks.org/opencv-motion-blur-in-python/
-    :param img: cv2 image
-    :param kernel_size: the blur kernel size
-    :param vertical: do vertical blur or horizontal blur
-    :return: motion blured img
-    '''
-
-    # Create the kernel.
-    kernel = np.zeros((kernel_size, kernel_size))
-
-    # Fill the middle row with ones.
-    if vertical:
-        kernel[:, int((kernel_size - 1) / 2)] = np.ones(kernel_size)
-    else:
-        kernel[int((kernel_size - 1) / 2), :] = np.ones(kernel_size)
-
-    # Normalize.
-    kernel /= kernel_size
-
-    # Apply the vertical kernel.
-    mb_img = cv2.filter2D(img, -1, kernel)
-
-    return mb_img
-
-def gaussian_blur(img, kernel_size=7, sigma=3):
-    return cv2.GaussianBlur(img, (kernel_size, kernel_size), sigma)
-
-def blur_image(cv2_img, blur_type):
-    if blur_type == 0:
-        return cv2_img
-    elif blur_type == 1:
-        blur_img = gaussian_blur(cv2_img, kernel_size=7, sigma=3)
-    elif blur_type == 2:
-        blur_img = motion_blur(cv2_img, kernel_size=20, vertical=True)
-    else:
-        blur_img = motion_blur(cv2_img, kernel_size=25, vertical=False)
-    return blur_img
-# ******* FACE UTILS *******
-
 def face_path_to_face(face_path):
-    face = cv2.imread(face_path)
-    face = blur_image(face, random.randint(0, 3))
-    face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-    
-    #making image square through padding
-    height, width, _ = face.shape
-    max_dim = np.max([height, width])
-    face = cv2.copyMakeBorder(face, max_dim-height, 0, max_dim-width, 0, cv2.BORDER_CONSTANT, 0)
-
-    #resizing to 224x224
-    mean = np.mean(face)
-    std = np.std(face)
+    face = Image.open(face_path)
     transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean, std, inplace=True),
-        transforms.Resize((224, 224)),
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor()
     ])
     face = transform(face)
     return face
