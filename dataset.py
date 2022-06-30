@@ -15,9 +15,12 @@ import numpy as np
 import librosa
 
 dataset_path = "/home/sravit/datasets/VoxCeleb-multimodal"
-train_path = "/home/sravit/datasets/VoxCeleb-multimodal/VoxCeleb1/test"
-face_dir = os.path.join(train_path, "face")
-utt_dir = os.path.join(train_path, "utt")
+train_path = os.path.join(dataset_path, "VoxCeleb1/test") #"VoxCeleb2/dev"
+train_face_dir = os.path.join(train_path, "face")
+train_utt_dir = os.path.join(train_path, "utt")
+test_path = os.path.join(dataset_path, "VoxCeleb1/test")
+test_face_dir = os.path.join(test_path, "face")
+test_utt_dir = os.path.join(test_path, "utt")
 
 # ******* FACE UTILS *******
 def motion_blur(img, kernel_size=15, vertical=True):
@@ -162,7 +165,7 @@ def get_random_spk_sample(spk, select_face=True, select_audio=True):
     return face, utt
 
 class MultimodalPairDataset(Dataset):
-    def __init__(self, face_dir=face_dir, utt_dir=utt_dir, length=64 * 10000, select_face=True, select_audio=True):
+    def __init__(self, face_dir=train_face_dir, utt_dir=train_utt_dir, length=64 * 10000, select_face=True, select_audio=True):
         super(MultimodalPairDataset, self).__init__()
 
         self.face_dir = face_dir
@@ -201,7 +204,7 @@ class MultimodalPairDataset(Dataset):
         return self.length
 
 class FaceDataset(Dataset):
-    def __init__(self, face_dir=face_dir, length=64 * 10000):
+    def __init__(self, face_dir=train_face_dir, length=64 * 10000):
         super(FaceDataset, self).__init__()
 
         self.face_dir = face_dir
