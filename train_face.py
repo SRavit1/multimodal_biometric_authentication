@@ -18,13 +18,14 @@ from models.fusion import System
 import models.resnet as resnet
 
 from dataset import MultimodalPairDataset, FaceDataset
-from loss import AngularPenaltySMLoss
+import loss as loss_utils
+from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
 
 emb_size = 512
 num_classes = 1211 #5994
 
-def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader, logger, log_dir, params):
+def train_face(model, classifier, optimizer, criterion, scheduler, train_loader, test_loader, logger, log_dir, params):
     best_eer = 100
     distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
     if not os.path.exists(distances_labels_hists_dir):
@@ -33,6 +34,8 @@ def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader
     far_frr_curves_dir = os.path.join(log_dir, "far_frr_curves")
     if not os.path.exists(far_frr_curves_dir):
         os.mkdir(far_frr_curves_dir)
+
+    ArcFaceLayer = ArcFace()
     
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
@@ -49,13 +52,17 @@ def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader
             optimizer.zero_grad()
 
             face_embeddings = model(faces)
+            face_logits = classifier(face_embeddings)
+            face_logits_mod = ArcFaceLayer(face_logits, labels)
+            loss = criterion(face_logits_mod, labels)
+            acc1, acc5 = loss_utils.accuracy(face_logits, labels, topk=(1, 5))
 
-            loss, acc1, acc5 = criterion(face_embeddings, labels)
             losses.update(float(loss))
             top1.update(float(acc1))
             top5.update(float(acc5))
 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(list(set(model.parameters()) | set(classifier.parameters())), 5)
             optimizer.step()
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
@@ -126,7 +133,8 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
-    face_model = resnet.resnet18(num_classes=512)
+    face_model = resnet.resnet18(num_classes=emb_size)
+    face_classifier = torch.nn.Linear(emb_size, num_classes)
 
     # load pretrained model
     if params["exp_params"]["pretrained"]:
@@ -137,11 +145,13 @@ def main():
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
         face_model = face_model.cuda()
+        face_classifier = face_classifier.cuda()
 
-    face_criterion = AngularPenaltySMLoss(emb_size, num_classes).cuda()
+    #face_criterion = AngularPenaltySMLoss(emb_size, num_classes, log_eps=params["optim_params"]["log_eps"]).cuda()
+    face_criterion = torch.nn.CrossEntropyLoss()
 
     # intialize optimizers
-    face_optimizer = optim.Adam(list(set(face_model.parameters()) | set(face_criterion.fc.parameters())), lr=params["optim_params"]['lr'], weight_decay=params["optim_params"]['weight_decay'])
+    face_optimizer = optim.Adam(list(set(face_model.parameters()) | set(face_classifier.parameters())), lr=params["optim_params"]['lr'], weight_decay=params["optim_params"]['weight_decay'])
 
     # initialize schedulers
     face_scheduler = StepLR(face_optimizer, step_size=30, gamma=0.1)
@@ -163,7 +173,7 @@ def main():
     face_num_params = sum(param.numel() for param in face_model.parameters())
     logger.info('Face number of parmeters:{}'.format(face_num_params))
     
-    train_face(face_model, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_test_loader, logger, log_dir, params)
+    train_face(face_model, face_classifier, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_test_loader, logger, log_dir, params)
     
 if __name__ == '__main__':
     main()
