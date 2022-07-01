@@ -17,7 +17,7 @@ from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
 
-from dataset import MultimodalPairDataset, FaceDataset
+from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset
 import loss as loss_utils
 from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
@@ -52,13 +52,13 @@ def main():
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
         face_model = face_model.cuda()
-    face_val_dataset = MultimodalPairDataset(params["data_params"]["train_dir"], length=params["data_params"]['val_dataset_len'],
-                                select_face=True, select_audio=False)
+    face_val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
+        select_face=True, select_audio=False, dataset=params["data_params"]["val_dataset"])
     face_val_loader = DataLoader(face_val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
 
     all_distances, all_labels, fprs, tprs, thresholds, eer = evaluate_single_modality(face_model, face_val_loader, params)
-    print(eer)
+    print("Validation EER on {} dataset: {:.2f}".format(params["data_params"]["val_dataset"], eer))
     
 if __name__ == '__main__':
     main()

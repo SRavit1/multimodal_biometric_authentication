@@ -104,6 +104,55 @@ def get_random_spk_sample(spk, dataset_path, select_face=True, select_audio=True
         utt = get_random_audio(spk_utt_dir, video_id)
     return face, utt
 
+# VoxCeleb1
+class Vox1ValDataset(Dataset):
+    def __init__(self, vox1_dir, select_face=True, select_audio=True, dataset='vox1-o'):
+        super(Vox1ValDataset, self).__init__()
+        self.vox1_dir = vox1_dir
+        self.select_face = select_face
+        self.select_audio = select_audio
+        self.dataset = dataset
+        print("Using VoxCeleb1 evaluation dataset {}".format(dataset))
+
+        if dataset == "vox1-o":
+            self.file = os.path.join(vox1_dir, "veri_test.txt")
+        elif dataset == "vox1-h":
+            self.file = os.path.join(vox1_dir, "list_test_hard.txt")
+        elif dataset == "vox1-e":
+            self.file = os.path.join(vox1_dir, "list_test_all.txt")
+        else:
+            raise Exception("Invalid validation dataset choice {}.".format(dataset))
+
+        with open(self.file, 'r') as f:
+            self.dataset = [line[:-1].split(" ") for line in f.readlines()]
+            self.dataset = [[int(entry[0]), entry[1], entry[2]] for entry in self.dataset]
+        self.length = len(self.dataset)
+
+    def __getitem__(self, idx):
+        label, utt_path1, utt_path2 = self.dataset[idx]
+        
+        spk1, spk1_vid, _ = utt_path1.split("/")
+        spk2, spk2_vid, _ = utt_path2.split("/")
+
+        if self.select_face:
+            face1 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk1), spk1_vid)
+            face2 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk2), spk2_vid)
+        if self.select_audio:
+            utt1 = utt_path_to_utt(os.path.join(self.vox1_dir, "test", "utt", utt_path1))
+            utt2 = utt_path_to_utt(os.path.join(self.vox1_dir, "test", "utt", utt_path1))
+        
+        if self.select_face and self.select_audio:
+            return label, face1, utt1, face2, utt2
+        elif self.select_face:
+            return label, face1, face2
+        elif self.select_audio:
+            return label, utt1, utt2
+        else:
+            return None
+
+    def __len__(self):
+        return self.length
+
 class MultimodalPairDataset(Dataset):
     def __init__(self, dataset_dir, length=64 * 10000, select_face=True, select_audio=True):
         super(MultimodalPairDataset, self).__init__()
