@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from utils import get_logger_2, check_dir, create_logger, save_checkpoint, AverageMeter
+from utils import get_logger_2, check_dir, create_logger, save_checkpoint, AverageMeter, plot_distances_labels, plot_far_frr
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
@@ -28,6 +28,14 @@ def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader
     best_acc1 = 0
     best_acc5 = 0
     best_eer = 1
+    distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
+    if not os.path.exists(distances_labels_hists_dir):
+        os.mkdir(distances_labels_hists_dir)
+    
+    far_frr_curves_dir = os.path.join(log_dir, "far_frr_curves")
+    if not os.path.exists(far_frr_curves_dir):
+        os.mkdir(far_frr_curves_dir)
+    
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
         
@@ -55,10 +63,11 @@ def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
         
         scheduler.step()
-
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
             model.eval()
-            eer = evaluate_single_modality(model, test_loader, params)
+            distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, test_loader, params)
+            plot_distances_labels(distances, labels, os.path.join(distances_labels_hists_dir, "distances_labels_epoch_{}.png".format(epoch)), epoch)
+            plot_far_frr(thresholds, fprs, tprs, os.path.join(far_frr_curves_dir, "far_frr_epoch_{}.png".format(epoch)), epoch)
             logger.info("Validation EER: {:.4f}".format(float(eer)))
         
         if eer < best_eer:
@@ -152,10 +161,6 @@ def main():
                                 select_face=True, select_audio=False)
     face_test_loader = DataLoader(face_test_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
-
-    # check existence of checkpoint dir
-    checkpoint_dir = os.path.join(params["exp_params"]['exp_dir'],'models')
-    check_dir(checkpoint_dir)
 
     face_num_params = sum(param.numel() for param in face_model.parameters())
     logger.info('Face number of parmeters:{}'.format(face_num_params))

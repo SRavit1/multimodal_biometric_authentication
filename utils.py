@@ -8,6 +8,7 @@ import kaldi_io
 import numpy as np
 import torch
 import shutil
+from matplotlib import pyplot as plt
 
 def spk2id(spk_file):
     spk2id_dic = {}
@@ -167,6 +168,30 @@ def create_logger(log_dir, phase='train'):
     logging.getLogger('').addHandler(console)
 
     return logger
+
+def plot_distances_labels(distances, labels, pathname, epoch):
+    negative_label_dists = distances[labels==0]
+    positive_label_dists = distances[labels==1]
+    fig, ax = plt.subplots()
+    ax.hist(negative_label_dists, alpha=0.5, label='negative labels')
+    ax.hist(positive_label_dists, alpha=0.5, label='positive labels')
+    ax.set_xlabel("Distance")
+    ax.set_ylabel("Frequency")
+    ax.set_title("Evaluation Distance Histogram: Epoch {}".format(epoch))
+    ax.legend()
+    fig.savefig(pathname)
+
+def plot_far_frr(thresholds, fprs, tprs, pathname, epoch):
+    assert np.max(thresholds) >= 0 and np.max(thresholds) <= 2
+    fig, ax = plt.subplots()
+    frrs = 1-tprs
+    ax.plot(thresholds, fprs, label="FAR")
+    ax.plot(thresholds, frrs, label="FRR")
+    ax.set_xlabel("Distance Threshold")
+    ax.set_ylabel("Error Rate")
+    ax.set_title("FAR and FRR vs Epoch: Epoch {}".format(epoch))
+    ax.legend()
+    fig.savefig(pathname)
 
 def check_dir(dir):
     if not os.path.exists(dir):

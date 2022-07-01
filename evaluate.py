@@ -7,9 +7,9 @@ from tqdm import tqdm
 # Adapted from https://github.com/VITA-Group/AutoSpeech/blob/master/utils.py
 def compute_eer(distances, labels):
     # Calculate evaluation metrics
-    fprs, tprs, _ = roc_curve(labels, distances)
+    fprs, tprs, thresholds = roc_curve(labels, distances)
     eer = fprs[np.nanargmin(np.absolute((1 - tprs) - fprs))]
-    return eer
+    return fprs, tprs, thresholds, eer
 
 def evaluate_single_modality(model, test_loader, params):
     all_distances = None
@@ -21,7 +21,8 @@ def evaluate_single_modality(model, test_loader, params):
         with torch.no_grad():
             embeddings1 = model(inputs1)
             embeddings2 = model(inputs2)
-        distances = F.cosine_similarity(embeddings1, embeddings2).cpu().numpy()
+        #distances = -1.*F.cosine_similarity(embeddings1, embeddings2).cpu().numpy()
+        distances = torch.sqrt(torch.sum(torch.pow(embeddings2-embeddings1, 2), dim=1)).cpu().numpy()
         labels = labels.numpy()
 
         if all_distances is not None:
@@ -31,8 +32,14 @@ def evaluate_single_modality(model, test_loader, params):
             all_distances = distances
             all_labels = labels
 
-    eer = compute_eer(all_distances, all_labels)
-    return eer
+    # compute_eer expects array of similarity values
+    # because we have distance values, we negate all_distances
+    assert np.min(all_distances) >= 0 and np.min(all_distances) <= 2
+    assert np.max(all_distances) >= 0 and np.max(all_distances) <= 2
+    fprs, tprs, thresholds, eer = compute_eer(-1.*all_distances, all_labels)
+    thresholds *= -1.
+    assert np.max(thresholds) >= 0 and np.max(thresholds) <= 2
+    return all_distances, all_labels, fprs, tprs, thresholds, eer
 
 def evaluate_multimodal(fusion_model, face_model, audio_model, test_loader, params):
     all_distances = None
