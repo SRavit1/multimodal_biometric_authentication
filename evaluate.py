@@ -9,7 +9,7 @@ def compute_eer(distances, labels):
     # Calculate evaluation metrics
     fprs, tprs, thresholds = roc_curve(labels, distances)
     eer = fprs[np.nanargmin(np.absolute((1 - tprs) - fprs))]
-    return fprs, tprs, thresholds, eer
+    return fprs*100, tprs*100, thresholds, eer*100
 
 def evaluate_single_modality(model, test_loader, params):
     all_distances = None
