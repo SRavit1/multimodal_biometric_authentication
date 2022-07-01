@@ -149,7 +149,7 @@ def main():
     face_scheduler = StepLR(face_optimizer, step_size=30, gamma=0.1)
 
     face_train_dataset = datasets.ImageFolder(
-        params["data_params"]["train_face_dir"],
+        os.path.join(params["data_params"]["train_dir"], "face"),
         transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
@@ -157,7 +157,7 @@ def main():
         ]))
     face_train_loader = DataLoader(face_train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
                                 num_workers=params["data_params"]['num_workers'])
-    face_test_dataset = MultimodalPairDataset(length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'],
+    face_test_dataset = MultimodalPairDataset(params["data_params"]["train_dir"], length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'],
                                 select_face=True, select_audio=False)
     face_test_loader = DataLoader(face_test_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])

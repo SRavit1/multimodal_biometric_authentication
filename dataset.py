@@ -15,14 +15,6 @@ import cv2
 import numpy as np
 import librosa
 
-dataset_path = "/home/sravit/datasets/VoxCeleb-multimodal"
-train_path = os.path.join(dataset_path, "VoxCeleb1/dev") #"VoxCeleb2/dev"
-train_face_dir = os.path.join(train_path, "face")
-train_utt_dir = os.path.join(train_path, "utt")
-test_path = os.path.join(dataset_path, "VoxCeleb1/test")
-test_face_dir = os.path.join(test_path, "face")
-test_utt_dir = os.path.join(test_path, "utt")
-
 def face_path_to_face(face_path):
     face = Image.open(face_path)
     transform = transforms.Compose([
@@ -98,9 +90,9 @@ def get_random_audio(spk_utt_dir, video_id):
     utt = utt_path_to_utt(utt_path)
     return utt
 
-def get_random_spk_sample(spk, select_face=True, select_audio=True):
-    spk_face_dir = os.path.join(train_path, "face", spk)
-    spk_utt_dir = os.path.join(train_path, "utt", spk)
+def get_random_spk_sample(spk, dataset_path, select_face=True, select_audio=True):
+    spk_face_dir = os.path.join(dataset_path, "face", spk)
+    spk_utt_dir = os.path.join(dataset_path, "utt", spk)
 
     video_id = random.choice(os.listdir(spk_face_dir))
     face = None
@@ -113,14 +105,15 @@ def get_random_spk_sample(spk, select_face=True, select_audio=True):
     return face, utt
 
 class MultimodalPairDataset(Dataset):
-    def __init__(self, face_dir=train_face_dir, utt_dir=train_utt_dir, length=64 * 10000, select_face=True, select_audio=True):
+    def __init__(self, dataset_dir, length=64 * 10000, select_face=True, select_audio=True):
         super(MultimodalPairDataset, self).__init__()
 
-        self.face_dir = face_dir
-        self.utt_dir = utt_dir
+        self.dataset_dir = dataset_dir
+        self.face_dir = os.path.join(dataset_dir, "face")
+        self.utt_dir = os.path.join(dataset_dir, "utt")
         self.length = length
 
-        self.spk_list = list(set(os.listdir(face_dir)) & set(os.listdir(utt_dir)))
+        self.spk_list = list(set(os.listdir(self.face_dir)) & set(os.listdir(self.utt_dir)))
         self.spk_num = len(self.spk_list)
 
         self.select_face = select_face
@@ -136,8 +129,8 @@ class MultimodalPairDataset(Dataset):
             spk2 = spk1
 
         label = choice
-        face1, utt1 = get_random_spk_sample(spk1, select_face=self.select_face)
-        face2, utt2 = get_random_spk_sample(spk2, select_audio=self.select_audio)
+        face1, utt1 = get_random_spk_sample(spk1, self.dataset_dir, select_face=self.select_face)
+        face2, utt2 = get_random_spk_sample(spk2, self.dataset_dir, select_audio=self.select_audio)
 
         if self.select_face and self.select_audio:
             return label, face1, utt1, face2, utt2
@@ -152,7 +145,7 @@ class MultimodalPairDataset(Dataset):
         return self.length
 
 class FaceDataset(Dataset):
-    def __init__(self, face_dir=train_face_dir, length=64 * 10000):
+    def __init__(self, face_dir, length=64 * 10000):
         super(FaceDataset, self).__init__()
 
         self.face_dir = face_dir
@@ -165,7 +158,7 @@ class FaceDataset(Dataset):
     def __getitem__(self, idx):
         spk = random.choice(self.spk_list)
         id = self.spk_dict[spk]
-        face, _ = get_random_spk_sample(spk, select_face=True, select_audio=False)
+        face, _ = get_random_spk_sample(spk, os.path.join(self.face_dir, os.pardir), select_face=True, select_audio=False)
 
         return face, id
 
