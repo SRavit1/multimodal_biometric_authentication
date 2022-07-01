@@ -11,10 +11,11 @@ def compute_eer(distances, labels):
     eer = fprs[np.nanargmin(np.absolute((1 - tprs) - fprs))]
     return fprs*100, tprs*100, thresholds, eer*100
 
-def evaluate_single_modality(model, test_loader, params):
+def evaluate_single_modality(model, val_loader, params):
+    model.eval()
     all_distances = None
     all_labels = None
-    for labels, inputs1, inputs2 in tqdm(test_loader, position=1, desc='evaluation'):
+    for labels, inputs1, inputs2 in tqdm(val_loader, position=1, desc='evaluation'):
         if params["optim_params"]['use_gpu']:
             inputs1 = inputs1.cuda()
             inputs2 = inputs2.cuda()

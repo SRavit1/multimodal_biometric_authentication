@@ -22,6 +22,7 @@ import loss as loss_utils
 from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
 
+#TODO: Add to face_train.conf
 emb_size = 512
 num_classes = 1211 #5994
 
