@@ -53,9 +53,9 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
 
             face_embeddings = model(faces)
             face_logits = classifier(face_embeddings)
+            acc1, acc5 = loss_utils.accuracy(face_logits, labels, topk=(1, 5))
             face_logits_mod = ArcFaceLayer(face_logits, labels)
             loss = criterion(face_logits_mod, labels)
-            acc1, acc5 = loss_utils.accuracy(face_logits, labels, topk=(1, 5))
 
             losses.update(float(loss))
             top1.update(float(acc1))
@@ -87,7 +87,7 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
         save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
-                #'best_acc1': best_acc1,
+                'best_eer': best_eer,
                 'optimizer' : optimizer.state_dict(),
                 'scheduler' : scheduler.state_dict()
             },
@@ -150,10 +150,14 @@ def main():
     #face_criterion = AngularPenaltySMLoss(emb_size, num_classes, log_eps=params["optim_params"]["log_eps"]).cuda()
     face_criterion = torch.nn.CrossEntropyLoss()
 
-    # intialize optimizers
-    face_optimizer = optim.Adam(list(set(face_model.parameters()) | set(face_classifier.parameters())), lr=params["optim_params"]['lr'], weight_decay=params["optim_params"]['weight_decay'])
+    # intialize optimizer
+    opt_params = [{"params": face_model.parameters()}, {"params": face_classifier.parameters()}]
+    lr = params["optim_params"]['lr']
+    weight_decay = params["optim_params"]['weight_decay']
+    face_optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
+    #face_optimizer = optim.SGD(opt_params, lr=lr, momentum=0.9, weight_decay=weight_decay)
 
-    # initialize schedulers
+    # initialize scheduler
     face_scheduler = StepLR(face_optimizer, step_size=30, gamma=0.1)
 
     face_train_dataset = datasets.ImageFolder(

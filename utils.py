@@ -180,6 +180,7 @@ def plot_distances_labels(distances, labels, pathname, epoch):
     ax.set_title("Evaluation Distance Histogram: Epoch {}".format(epoch))
     ax.legend()
     fig.savefig(pathname)
+    plt.close('all')
 
 def plot_far_frr(thresholds, fprs, tprs, pathname, epoch):
     assert np.max(thresholds) >= 0 and np.max(thresholds) <= 2
@@ -192,6 +193,7 @@ def plot_far_frr(thresholds, fprs, tprs, pathname, epoch):
     ax.set_title("FAR and FRR vs Epoch: Epoch {}".format(epoch))
     ax.legend()
     fig.savefig(pathname)
+    plt.close('all')
 
 def check_dir(dir):
     if not os.path.exists(dir):
