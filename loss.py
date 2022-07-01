@@ -54,6 +54,7 @@ class AngularPenaltySMLoss(nn.Module):
         self.out_features = out_features
         self.fc = nn.Linear(in_features, out_features, bias=False)
         self.eps = eps
+        self.log_eps = 1e-5
 
     def forward(self, x, labels):
         '''
@@ -78,7 +79,7 @@ class AngularPenaltySMLoss(nn.Module):
 
         excl = torch.cat([torch.cat((wf[i, :y], wf[i, y+1:])).unsqueeze(0) for i, y in enumerate(labels)], dim=0)
         denominator = torch.exp(numerator) + torch.sum(torch.exp(self.s * excl), dim=1)
-        L = numerator - torch.log(denominator)
+        L = numerator - torch.log(denominator+self.log_eps)
         loss = -torch.mean(L)
         acc1, acc5 = accuracy(wf, labels, topk=(1, 5))
         return loss, acc1, acc5

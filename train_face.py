@@ -25,9 +25,7 @@ emb_size = 512
 num_classes = 1211 #5994
 
 def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader, logger, log_dir, params):
-    best_acc1 = 0
-    best_acc5 = 0
-    best_eer = 1
+    best_eer = 100
     distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
     if not os.path.exists(distances_labels_hists_dir):
         os.mkdir(distances_labels_hists_dir)
@@ -123,7 +121,7 @@ def main():
     logger = create_logger(log_dir)
 
     # write config file to expdir
-    store_path = os.path.join(params["exp_params"]['exp_dir'], conf_name)
+    store_path = os.path.join(log_dir, conf_name)
     write_conf(config_path, store_path)
 
     # models init
@@ -143,7 +141,7 @@ def main():
     face_criterion = AngularPenaltySMLoss(emb_size, num_classes).cuda()
 
     # intialize optimizers
-    face_optimizer = optim.Adam(list(set(face_model.parameters()) | set(face_criterion.fc.parameters())), lr=params["optim_params"]['lr'])
+    face_optimizer = optim.Adam(list(set(face_model.parameters()) | set(face_criterion.fc.parameters())), lr=params["optim_params"]['lr'], weight_decay=params["optim_params"]['weight_decay'])
 
     # initialize schedulers
     face_scheduler = StepLR(face_optimizer, step_size=30, gamma=0.1)

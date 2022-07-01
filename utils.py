@@ -184,7 +184,7 @@ def plot_distances_labels(distances, labels, pathname, epoch):
 def plot_far_frr(thresholds, fprs, tprs, pathname, epoch):
     assert np.max(thresholds) >= 0 and np.max(thresholds) <= 2
     fig, ax = plt.subplots()
-    frrs = 1-tprs
+    frrs = 100-tprs
     ax.plot(thresholds, fprs, label="FAR")
     ax.plot(thresholds, frrs, label="FRR")
     ax.set_xlabel("Distance Threshold")
