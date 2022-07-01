@@ -17,16 +17,12 @@ from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
 
-from dataset import MultimodalPairDataset, FaceDataset
+from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset
 import loss as loss_utils
 from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
 
-#TODO: Add to face_train.conf
-emb_size = 512
-num_classes = 1211 #5994
-
-def train_face(model, classifier, optimizer, criterion, scheduler, train_loader, test_loader, logger, log_dir, params):
+def train_face(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
     best_eer = 100
     distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
     if not os.path.exists(distances_labels_hists_dir):
@@ -71,7 +67,7 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
         scheduler.step()
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
             model.eval()
-            distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, test_loader, params)
+            distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
             plot_distances_labels(distances, labels, os.path.join(distances_labels_hists_dir, "distances_labels_epoch_{}.png".format(epoch)), epoch)
             plot_far_frr(thresholds, fprs, tprs, os.path.join(far_frr_curves_dir, "far_frr_epoch_{}.png".format(epoch)), epoch)
             logger.info("Validation EER: {:.4f}".format(float(eer)))
@@ -134,13 +130,13 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
-    face_model = resnet.resnet18(num_classes=emb_size)
-    face_classifier = torch.nn.Linear(emb_size, num_classes)
+    face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
+    face_classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model
     if params["exp_params"]["pretrained"]:
         logger.info('Load pretrained model from {}'.format(params["exp_params"]["pretrained"]))
-        state_dict = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
+        state_dict = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)["state_dict"]
         face_model.load_state_dict(state_dict)
 
     # convert models to cuda
@@ -148,7 +144,6 @@ def main():
         face_model = face_model.cuda()
         face_classifier = face_classifier.cuda()
 
-    #face_criterion = AngularPenaltySMLoss(emb_size, num_classes, log_eps=params["optim_params"]["log_eps"]).cuda()
     face_criterion = torch.nn.CrossEntropyLoss()
 
     # intialize optimizer
@@ -170,15 +165,15 @@ def main():
         ]))
     face_train_loader = DataLoader(face_train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
                                 num_workers=params["data_params"]['num_workers'])
-    face_test_dataset = MultimodalPairDataset(params["data_params"]["train_dir"], length=params["data_params"]['batch_size'] * params["data_params"]['batch_iters'],
-                                select_face=True, select_audio=False)
-    face_test_loader = DataLoader(face_test_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
+    face_val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
+        select_face=True, select_audio=False, dataset=params["data_params"]["val_dataset"])
+    face_val_loader = DataLoader(face_val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
 
     face_num_params = sum(param.numel() for param in face_model.parameters())
     logger.info('Face number of parmeters:{}'.format(face_num_params))
     
-    train_face(face_model, face_classifier, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_test_loader, logger, log_dir, params)
+    train_face(face_model, face_classifier, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_val_loader, logger, log_dir, params)
     
 if __name__ == '__main__':
     main()
