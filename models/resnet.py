@@ -283,10 +283,9 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         if self.normalize_output:
-          x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1))  #torch.linalg.norm(x)
-          x_norm = torch.unsqueeze(x_norm, 1)
-          x = torch.div(x, x_norm)
-
+            mag = torch.sqrt(torch.sum(torch.pow(x.clone(), 2), dim=1))
+            mag = torch.unsqueeze(mag, 1)
+            x = x / mag
         return x
 
     def forward(self, x: Tensor) -> Tensor:
@@ -309,7 +308,7 @@ def _resnet(
     return model
 
 
-def resnet18(pretrained: bool = False, progress: bool = True, input_channels=3, normalize_output=False, **kwargs: Any) -> ResNet:
+def resnet18(pretrained: bool = False, progress: bool = True, input_channels=3, normalize_output=True, **kwargs: Any) -> ResNet:
     r"""ResNet-18 model from
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
 

@@ -6,6 +6,8 @@ import h5py
 from tqdm import tqdm
 import kaldi_io
 import numpy as np
+import torch
+import shutil
 
 def spk2id(spk_file):
     spk2id_dic = {}
@@ -120,6 +122,49 @@ def get_logger_2(
     # Add handlers to the logger
     logger.addHandler(c_handler)
     logger.addHandler(f_handler)
+
+    return logger
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name="", fmt=":.2f"):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
+# Adapted from https://github.com/pytorch/examples/blob/main/imagenet/main.py
+def save_checkpoint(state, is_best, filename, best_filename):
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, best_filename)
+
+# Adapted from https://github.com/VITA-Group/AutoSpeech/blob/master/utils.py
+def create_logger(log_dir, phase='train'):
+    log_file = 'train.log'
+    final_log_file = os.path.join(log_dir, log_file)
+    head = '%(asctime)-15s %(message)s'
+    logging.basicConfig(filename=str(final_log_file),
+                        format=head)
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    console = logging.StreamHandler()
+    logging.getLogger('').addHandler(console)
 
     return logger
 

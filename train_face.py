@@ -2,6 +2,8 @@ import os
 import argparse
 import configparser
 from tqdm import tqdm
+import time
+import shutil
 
 import torch
 from torch.utils.data import DataLoader
@@ -10,7 +12,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from utils import get_logger_2, check_dir
+from utils import get_logger_2, check_dir, create_logger, save_checkpoint, AverageMeter
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
@@ -22,10 +24,18 @@ from evaluate import evaluate_single_modality
 emb_size = 512
 num_classes = 1211 #5994
 
-def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader, logger, params):
+def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader, logger, log_dir, params):
+    best_acc1 = 0
+    best_acc5 = 0
+    best_eer = 1
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
-        for batch_no, (faces, labels) in tqdm(enumerate(train_loader), position=1):
+        
+        losses = AverageMeter("Loss")
+        top1 = AverageMeter("Acc@1")
+        top5 = AverageMeter("Acc@5")
+        
+        for batch_no, (faces, labels) in enumerate(train_loader):
             if params["optim_params"]['use_gpu']:
                 faces = faces.cuda()
                 labels = labels.cuda()
@@ -35,15 +45,48 @@ def train_face(model, optimizer, criterion, scheduler, train_loader, test_loader
             face_embeddings = model(faces)
 
             loss, acc1, acc5 = criterion(face_embeddings, labels)
+            losses.update(float(loss))
+            top1.update(float(acc1))
+            top5.update(float(acc5))
+
             loss.backward()
             optimizer.step()
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
-                logger.info("Epoch [{}] Batch: {}/{}, Loss: {:.4f}, Acc1: {:.4f}, Acc 5: {:.4f}".format(epoch, batch_no, len(train_loader), loss, float(acc1), float(acc5)))
-        scheduler.step(loss)
+                logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
+        
+        scheduler.step()
+
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
-            model.test()
+            model.eval()
             eer = evaluate_single_modality(model, test_loader, params)
-            logger.info("Validation EER: {.4f}".format(eer))
+            logger.info("Validation EER: {:.4f}".format(float(eer)))
+        
+        if eer < best_eer:
+            is_best = True
+            best_eer = eer
+        else:
+            is_best = False
+        logger.info("is_best {}. Saving checkpoint.".format(is_best))
+
+        checkpoint_path = os.path.join(log_dir, "checkpoint")
+        best_checkpoint_path = os.path.join(log_dir, "best_checkpoint")
+        save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                #'best_acc1': best_acc1,
+                'optimizer' : optimizer.state_dict(),
+                'scheduler' : scheduler.state_dict()
+            },
+            is_best,
+            checkpoint_path + ".pth",
+            best_checkpoint_path + ".pth")
+        
+        dummy_input = torch.zeros((1, 3, 224, 224))
+        if params["optim_params"]['use_gpu']:
+            dummy_input = dummy_input.cuda()
+        torch.onnx.export(model, dummy_input, checkpoint_path + ".onnx")
+        if is_best:
+            shutil.copyfile(checkpoint_path + ".onnx", best_checkpoint_path + ".onnx")
 
 def main():
     # *********************** process config ***********************
@@ -63,7 +106,12 @@ def main():
 
     # setup logger
     check_dir(params["exp_params"]['exp_dir'])
-    logger = get_logger_2(os.path.join(params["exp_params"]['exp_dir'], 'train.log'))
+    #logger = get_logger_2(os.path.join(params["exp_params"]['exp_dir'], 'train.log'))
+    time_str = time.strftime('%Y-%m-%d-%H-%M-%S')
+    model_name = "face_" + time_str
+    log_dir = os.path.join(params["exp_params"]['exp_dir'], model_name)
+    os.mkdir(log_dir)
+    logger = create_logger(log_dir)
 
     # write config file to expdir
     store_path = os.path.join(params["exp_params"]['exp_dir'], conf_name)
@@ -110,9 +158,9 @@ def main():
     check_dir(checkpoint_dir)
 
     face_num_params = sum(param.numel() for param in face_model.parameters())
-    logger.info('Fusion number of parmeters:{}'.format(face_num_params))
+    logger.info('Face number of parmeters:{}'.format(face_num_params))
     
-    train_face(face_model, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_test_loader, logger, params)
+    train_face(face_model, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_test_loader, logger, log_dir, params)
     
 if __name__ == '__main__':
     main()
