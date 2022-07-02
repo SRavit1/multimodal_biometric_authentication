@@ -157,8 +157,12 @@ def main():
     # initialize scheduler
     face_scheduler = StepLR(face_optimizer, step_size=30, gamma=0.1)
 
+    if params["data_params"]["small_dataset"]:
+        face_dir_ext = "face-small"
+    else:
+        face_dir_ext = "face"
     face_train_dataset = datasets.ImageFolder(
-        os.path.join(params["data_params"]["train_dir"], "face"),
+        os.path.join(params["data_params"]["train_dir"], face_dir_ext),
         transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
