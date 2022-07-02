@@ -50,6 +50,7 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
 
             face_embeddings = model(faces)
             face_logits = classifier(face_embeddings)
+            face_logits = face_logits.clamp(-1, 1)
             acc1, acc5 = loss_utils.accuracy(face_logits, labels, topk=(1, 5))
             face_logits_mod = ArcFaceLayer(face_logits, labels)
             loss = criterion(face_logits_mod, labels)
