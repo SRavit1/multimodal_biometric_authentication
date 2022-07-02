@@ -15,13 +15,19 @@ import cv2
 import numpy as np
 import librosa
 
-def face_path_to_face(face_path):
+def face_path_to_face(face_path, random_transform=False):
     face = Image.open(face_path)
-    transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor()
-    ])
+    if random_transform:
+        transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor()
+        ])
+    else:
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor()
+        ])
     face = transform(face)
     return face
 
@@ -74,12 +80,12 @@ def utt_path_to_utt(utt_path, clip_len=3):
     utt = transform(audio)
     return utt
 
-def get_random_face(spk_face_dir, video_id):
+def get_random_face(spk_face_dir, video_id, random_transform=False):
     spk_video_face_dir = os.path.join(spk_face_dir, video_id)
     
     face_path = os.path.join(spk_video_face_dir, random.choice(os.listdir(spk_video_face_dir)))
 
-    face = face_path_to_face(face_path)
+    face = face_path_to_face(face_path, random_transform=random_transform)
     return face
 
 def get_random_audio(spk_utt_dir, video_id):
@@ -90,7 +96,7 @@ def get_random_audio(spk_utt_dir, video_id):
     utt = utt_path_to_utt(utt_path)
     return utt
 
-def get_random_spk_sample(spk, dataset_path, select_face=True, select_audio=True):
+def get_random_spk_sample(spk, dataset_path, select_face=True, select_audio=True, random_transform=False):
     spk_face_dir = os.path.join(dataset_path, "face", spk)
     spk_utt_dir = os.path.join(dataset_path, "utt", spk)
 
@@ -99,19 +105,20 @@ def get_random_spk_sample(spk, dataset_path, select_face=True, select_audio=True
     utt = None
 
     if select_face:
-        face = get_random_face(spk_face_dir, video_id)
+        face = get_random_face(spk_face_dir, video_id, random_transform=random_transform)
     if select_audio:
-        utt = get_random_audio(spk_utt_dir, video_id)
+        utt = get_random_audio(spk_utt_dir, video_id, random_transform=random_transform)
     return face, utt
 
 # VoxCeleb1
 class Vox1ValDataset(Dataset):
-    def __init__(self, vox1_dir, select_face=True, select_audio=True, dataset='vox1-o'):
+    def __init__(self, vox1_dir, select_face=True, select_audio=True, dataset='vox1-o', random_transform=False):
         super(Vox1ValDataset, self).__init__()
         self.vox1_dir = vox1_dir
         self.select_face = select_face
         self.select_audio = select_audio
         self.dataset = dataset
+        self.random_transform = random_transform
         print("Using VoxCeleb1 evaluation dataset {}".format(dataset))
 
         if dataset == "vox1-o":
@@ -135,8 +142,8 @@ class Vox1ValDataset(Dataset):
         spk2, spk2_vid, _ = utt_path2.split("/")
 
         if self.select_face:
-            face1 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk1), spk1_vid)
-            face2 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk2), spk2_vid)
+            face1 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk1), spk1_vid, random_transform=self.random_transform)
+            face2 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk2), spk2_vid, random_transform=self.random_transform)
         if self.select_audio:
             utt1 = utt_path_to_utt(os.path.join(self.vox1_dir, "test", "utt", utt_path1))
             utt2 = utt_path_to_utt(os.path.join(self.vox1_dir, "test", "utt", utt_path1))
