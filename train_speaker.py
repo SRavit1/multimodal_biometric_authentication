@@ -160,7 +160,7 @@ def main():
     speaker_train_dataset = datasets.DatasetFolder(
         os.path.join(params["data_params"]["train_dir"], "utt"),
         utt_path_to_utt,
-        "wav"
+        ("wav", "m4a")
     )
     speaker_train_loader = DataLoader(speaker_train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
                                 num_workers=params["data_params"]['num_workers'])

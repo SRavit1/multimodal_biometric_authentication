@@ -14,6 +14,7 @@ import os
 import cv2
 import numpy as np
 import librosa
+from pydub import AudioSegment
 
 def face_path_to_face(face_path, random_transform=False):
     face = Image.open(face_path)
@@ -35,14 +36,18 @@ def face_path_to_face(face_path, random_transform=False):
 clip_len: desired length of audio clip in seconds
 """
 def utt_path_to_utt(utt_path, clip_len=3):
-    #audio, sr = librosa.load(utt_path, sr=22050, mono=True)
-    audio, sr = torchaudio.load(utt_path)
     target_sr = 8000
-    audio = F.resample(
-                audio,
-                sr,
-                target_sr
-            )
+    ext = utt_path.split(".")[-1]
+    if ext == "wav":
+        audio, sr = torchaudio.load(utt_path)
+        audio = F.resample(
+                    audio,
+                    sr,
+                    target_sr
+                )
+    else:
+        audio = AudioSegment.from_file(utt_path).resample(sample_rate_Hz=target_sr, sample_width=2, channels=1)
+        #audio, sr = librosa.load(utt_path, sr=target_sr)
     waveform_len = target_sr*clip_len
     
     # Removing silence (src: https://www.tutorialexample.com/python-remove-silence-in-wav-using-librosa-librosa-tutorial/)
