@@ -16,6 +16,7 @@ from utils import get_logger_2, check_dir, create_logger, save_checkpoint, Avera
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
+import models.resnet_dense_xnor as resnet_dense_xnor
 
 from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset
 import loss as loss_utils
@@ -131,14 +132,23 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
-    face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
+    if params["exp_params"]["dtype"] == "full_prec":
+        face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
+    elif params["exp_params"]["dtype"] == "xnor":
+        face_model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
+            bitwidth=params["exp_params"]["act_bw"],
+            weight_bitwidth=params["exp_params"]["weight_bw"])
+        for p in face_model.modules():
+            if hasattr(p, 'weight_org'):
+                p.weight_org.copy_(p.weight.data.clamp_(-1,1))
     face_classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model
     if params["exp_params"]["pretrained"]:
         logger.info('Load pretrained model from {}'.format(params["exp_params"]["pretrained"]))
-        state_dict = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)["state_dict"]
-        face_model.load_state_dict(state_dict)
+        checkpoint = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
+        state_dict = checkpoint["state_dict"]
+        face_model.load_state_dict(state_dict, strict=False)
 
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
