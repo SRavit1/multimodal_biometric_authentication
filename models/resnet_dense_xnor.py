@@ -344,7 +344,7 @@ def _resnet(
     return model
 
 
-def resnet18(pretrained: bool = False, progress: bool = True, bitwidth=1, weight_bitwidth=1, input_channels=3, normalize_output=False, **kwargs: Any) -> ResNet:
+def resnet18(pretrained: bool = False, progress: bool = True, bitwidth=1, weight_bitwidth=1, input_channels=3, normalize_output=True, **kwargs: Any) -> ResNet:
     r"""ResNet-18 model from
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
 

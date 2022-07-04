@@ -16,6 +16,7 @@ from utils import get_logger_2, check_dir, create_logger, save_checkpoint, Avera
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
+import models.resnet_dense_xnor as resnet_dense_xnor
 
 from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset
 import loss as loss_utils
@@ -24,7 +25,7 @@ from evaluate import evaluate_single_modality
 
 def main():
     # *********************** process config ***********************
-    conf_name = "face_val.conf"
+    conf_name = "face_val_xnor.conf"
     config_path = os.path.join('conf', conf_name)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
@@ -40,12 +41,21 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
-    face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
+    if params["exp_params"]["dtype"] == "full_prec":
+        face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
+    elif params["exp_params"]["dtype"] == "xnor":
+        face_model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
+            bitwidth=params["exp_params"]["act_bw"],
+            weight_bitwidth=params["exp_params"]["weight_bw"])
 
     # load pretrained model
     if params["exp_params"]["pretrained"]:
         state_dict = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)["state_dict"]
-        face_model.load_state_dict(state_dict)
+        face_model.load_state_dict(state_dict, strict=False)
+        if params["exp_params"]["dtype"] == "xnor":
+            for p in face_model.modules():
+                if hasattr(p, 'weight_org'):
+                    p.weight_org.copy_(p.weight.data.clamp_(-1,1))
     else:
         raise Exception("Please specify pretrained checkpoint to load from in config file.")
 

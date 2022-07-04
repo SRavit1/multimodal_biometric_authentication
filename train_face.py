@@ -103,7 +103,7 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
 
 def main():
     # *********************** process config ***********************
-    conf_name = "face_train.conf"
+    conf_name = "face_train_xnor.conf"
     config_path = os.path.join('conf', conf_name)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
@@ -138,9 +138,6 @@ def main():
         face_model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
             bitwidth=params["exp_params"]["act_bw"],
             weight_bitwidth=params["exp_params"]["weight_bw"])
-        for p in face_model.modules():
-            if hasattr(p, 'weight_org'):
-                p.weight_org.copy_(p.weight.data.clamp_(-1,1))
     face_classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model
@@ -149,6 +146,10 @@ def main():
         checkpoint = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
         state_dict = checkpoint["state_dict"]
         face_model.load_state_dict(state_dict, strict=False)
+        if params["exp_params"]["dtype"] == "xnor":
+            for p in face_model.modules():
+                if hasattr(p, 'weight_org'):
+                    p.weight_org.copy_(p.weight.data.clamp_(-1,1))
 
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
