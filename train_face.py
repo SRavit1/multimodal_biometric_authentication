@@ -63,6 +63,11 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
             loss.backward()
             torch.nn.utils.clip_grad_norm_(list(set(model.parameters()) | set(classifier.parameters())), 5)
             optimizer.step()
+            """
+            for p in model.modules():
+                if hasattr(p, 'weight_org'):
+                    p.weight.data.copy_(p.weight.data.clamp_(-1,1))
+            """
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
         
@@ -136,8 +141,8 @@ def main():
         face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
     elif params["exp_params"]["dtype"] == "xnor":
         face_model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
-            bitwidth=params["exp_params"]["act_bw"],
-            weight_bitwidth=params["exp_params"]["weight_bw"])
+            act_bw=params["exp_params"]["act_bw"],
+            weight_bw=params["exp_params"]["weight_bw"])
     face_classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model

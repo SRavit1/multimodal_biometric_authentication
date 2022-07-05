@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from datetime import datetime
 
 import numpy as np
-import binarized_utils_own
 '''
 def quantize(number,bitwidth):
     temp=1/bitwidth
