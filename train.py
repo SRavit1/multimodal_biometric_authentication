@@ -18,12 +18,12 @@ from models.fusion import System
 import models.resnet as resnet
 import models.resnet_dense_xnor as resnet_dense_xnor
 
-from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset
+from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset, utt_path_to_utt
 import loss as loss_utils
 from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
 
-def train_face(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
+def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
     best_eer = 100
     distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
     if not os.path.exists(distances_labels_hists_dir):
@@ -42,19 +42,19 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
         top1 = AverageMeter("Acc@1")
         top5 = AverageMeter("Acc@5")
         
-        for batch_no, (faces, labels) in enumerate(train_loader):
+        for batch_no, (samples, labels) in enumerate(train_loader):
             if params["optim_params"]['use_gpu']:
-                faces = faces.cuda()
+                samples = samples.cuda()
                 labels = labels.cuda()
             
             optimizer.zero_grad()
 
-            face_embeddings = model(faces)
-            face_logits = classifier(face_embeddings)
-            face_logits = face_logits.clamp(-1, 1)
-            acc1, acc5 = loss_utils.accuracy(face_logits, labels, topk=(1, 5))
-            face_logits_mod = ArcFaceLayer(face_logits, labels)
-            loss = criterion(face_logits_mod, labels)
+            embeddings = model(samples)
+            logits = classifier(embeddings)
+            logits = logits.clamp(-1, 1)
+            acc1, acc5 = loss_utils.accuracy(logits, labels, topk=(1, 5))
+            logits_mod = ArcFaceLayer(logits, labels)
+            loss = criterion(logits_mod, labels)
 
             losses.update(float(loss))
             top1.update(float(acc1))
@@ -108,7 +108,7 @@ def train_face(model, classifier, optimizer, criterion, scheduler, train_loader,
 
 def main():
     # *********************** process config ***********************
-    conf_name = "face_train_xnor.conf"
+    conf_name = "speaker_train.conf"
     config_path = os.path.join('conf', conf_name)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
@@ -121,12 +121,14 @@ def main():
         "optim_params": {k: eval(v) for k, v in config['optimization'].items()}
     }
     # *********************** process config ***********************
+    model_type = params["exp_params"]["model_type"]
+    assert model_type in ["face", "speaker"]
 
     # setup logger
     check_dir(params["exp_params"]['exp_dir'])
     #logger = get_logger_2(os.path.join(params["exp_params"]['exp_dir'], 'train.log'))
     time_str = time.strftime('%Y-%m-%d-%H-%M-%S')
-    model_name = "face_" + time_str
+    model_name = model_type + "_" + time_str
     log_dir = os.path.join(params["exp_params"]['exp_dir'], model_name)
     os.mkdir(log_dir)
     logger = create_logger(log_dir)
@@ -137,64 +139,74 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
+    input_channels = 3 if model_type == "face" else 1
     if params["exp_params"]["dtype"] == "full_prec":
-        face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"])
+        model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"], input_channels=input_channels)
     elif params["exp_params"]["dtype"] == "xnor":
-        face_model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
+        model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
             act_bw=params["exp_params"]["act_bw"],
-            weight_bw=params["exp_params"]["weight_bw"])
-    face_classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
+            weight_bw=params["exp_params"]["weight_bw"],
+            input_channels=input_channels)
+    classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model
     if params["exp_params"]["pretrained"]:
         logger.info('Load pretrained model from {}'.format(params["exp_params"]["pretrained"]))
         checkpoint = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
         state_dict = checkpoint["state_dict"]
-        face_model.load_state_dict(state_dict, strict=False)
+        model.load_state_dict(state_dict, strict=False)
         if params["exp_params"]["dtype"] == "xnor":
-            for p in face_model.modules():
+            for p in model.modules():
                 if hasattr(p, 'weight_org'):
                     p.weight_org.copy_(p.weight.data.clamp_(-1,1))
 
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
-        face_model = face_model.cuda()
-        face_classifier = face_classifier.cuda()
+        model = model.cuda()
+        classifier = classifier.cuda()
 
-    face_criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss()
 
     # intialize optimizer
-    opt_params = [{"params": face_model.parameters()}, {"params": face_classifier.parameters()}]
+    opt_params = [{"params": model.parameters()}, {"params": classifier.parameters()}]
     lr = params["optim_params"]['lr']
     weight_decay = params["optim_params"]['weight_decay']
-    face_optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
-    #face_optimizer = optim.SGD(opt_params, lr=lr, momentum=0.9, weight_decay=weight_decay)
+    optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
+    #optimizer = optim.SGD(opt_params, lr=lr, momentum=0.9, weight_decay=weight_decay)
 
     # initialize scheduler
-    face_scheduler = StepLR(face_optimizer, step_size=30, gamma=0.1)
+    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
 
-    if params["data_params"]["small_dataset"]:
-        face_dir_ext = "face-small"
+    if model_type == "face" and params["data_params"]["small_dataset"]:
+        dir_ext = "face-small"
     else:
-        face_dir_ext = "face"
-    face_train_dataset = datasets.ImageFolder(
-        os.path.join(params["data_params"]["train_dir"], face_dir_ext),
-        transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor()
-        ]))
-    face_train_loader = DataLoader(face_train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
+        dir_ext = "face" if model_type=="face" else "utt"
+    
+    if model_type == "face":
+        train_dataset = datasets.ImageFolder(
+            os.path.join(params["data_params"]["train_dir"], dir_ext),
+            transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor()
+            ]))
+    elif model_type == "speaker":
+        train_dataset = datasets.DatasetFolder(
+            os.path.join(params["data_params"]["train_dir"], "utt"),
+            utt_path_to_utt,
+            ("wav", "m4a")
+        )
+    train_loader = DataLoader(train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
                                 num_workers=params["data_params"]['num_workers'])
-    face_val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
-        select_face=True, select_audio=False, dataset=params["data_params"]["val_dataset"])
-    face_val_loader = DataLoader(face_val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
+    val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
+        select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"])
+    val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
 
-    face_num_params = sum(param.numel() for param in face_model.parameters())
-    logger.info('Face number of parmeters:{}'.format(face_num_params))
+    num_params = sum(param.numel() for param in model.parameters())
+    logger.info('Number of parmeters:{}'.format(num_params))
     
-    train_face(face_model, face_classifier, face_optimizer, face_criterion, face_scheduler, face_train_loader, face_val_loader, logger, log_dir, params)
+    train(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params)
     
 if __name__ == '__main__':
     main()
