@@ -11,6 +11,9 @@ from torch import Tensor
 
 import binarized_modules
 
+import os
+from matplotlib import pyplot as plt
+
 __all__ = [
     "ResNet",
     "resnet18",
@@ -223,7 +226,8 @@ class ResNet(nn.Module):
             )
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = binarized_modules.BinarizeConv2d(self.act_bw, self.act_bw, self.weight_bw, input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        #self.conv1 = binarized_modules.BinarizeConv2d(self.act_bw, self.act_bw, self.weight_bw, input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.act = nn.Hardtanh(inplace=True) #nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -233,7 +237,8 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.bn2 = norm_layer(512)
-        self.fc = binarized_modules.BinarizeLinear(self.act_bw, self.act_bw, self.weight_bw, 512 * block.expansion, num_classes)
+        #self.fc = binarized_modules.BinarizeLinear(self.act_bw, self.act_bw, self.weight_bw, 512 * block.expansion, num_classes)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -251,6 +256,25 @@ class ResNet(nn.Module):
                     nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
+
+        """
+        save_dir = "/home/sravit/multimodal/multimodal_biometric_authentication/exp/param_vis"
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+        for m in self.modules():
+            if isinstance(m, nn.Sequential):
+                counter = 0
+                for p in m.parameters():
+                    counter += 1
+                    with torch.no_grad():
+                        hist_path = os.path.join(save_dir, "parameter_" + str(counter) + ".png")
+                        plt.hist(p.flatten())
+                        plt.xlabel("Parameter")
+                        plt.ylabel("Frequency")
+                        plt.title("Parameter " + str(counter) + " Distribution")
+                        plt.savefig(hist_path)
+                        plt.clf()
+        """
 
     def change_bitwidth(self, wbw, abw):
         #change bitwidth of all layers/submodules to new_bitwidth
@@ -309,14 +333,15 @@ class ResNet(nn.Module):
         x = self.maxpool(x)
         x = self.bn1(x)
 
+        x = self.act(x)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = self.act(x)
 
         x = self.avgpool(x)
         x = self.bn2(x)
+        x = self.act(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
 

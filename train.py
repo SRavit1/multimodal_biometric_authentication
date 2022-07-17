@@ -23,6 +23,7 @@ import loss as loss_utils
 from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
 from scheduler import PolyScheduler
+from binarized_modules import copy_data_to_org, copy_org_to_data
 
 def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
     best_eer = 100
@@ -62,14 +63,10 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
 
             optimizer.zero_grad()
             loss.backward()
-            for p in model.modules():
-                if hasattr(p, 'weight_org'):
-                    p.weight.data.copy_(p.weight_org)
             torch.nn.utils.clip_grad_norm_(list(set(model.parameters()) | set(classifier.parameters())), 5)
+            copy_org_to_data(model)
             optimizer.step()
-            for p in model.modules():
-                if hasattr(p, 'weight_org'):
-                    p.weight_org.copy_(p.weight.data.clamp_(-1,1))
+            copy_data_to_org(model)
 
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
@@ -115,7 +112,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
 
 def main():
     # *********************** process config ***********************
-    conf_name = "face_train.conf"
+    conf_name = "face_train_xnor.conf"
     config_path = os.path.join('conf', conf_name)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())

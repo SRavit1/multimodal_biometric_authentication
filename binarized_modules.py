@@ -279,6 +279,7 @@ class BinarizeConv2d(nn.Conv2d):
 
     def forward(self, input):
         mask = [None]*self.input_bit
+        torch.clamp(input.data, -1, 1)
         input.data = Binarize(input.data,quant_mode='multi',bitwidth=self.input_bit)
         #input.data = force_pack(input.data,self.input_bit)
         self.weight.data=torch.clamp(Binarize(self.weight_org.clone(), quant_mode="multi", bitwidth=self.weight_bit), min=-0.99, max=0.99)
@@ -457,3 +458,21 @@ def get_activation(activation_type, input_shape=(1,1,1,1), leaky_relu_slope=0.1)
             nn.ReLU(),
             Bias(input_shape[1])
         )
+
+def get_all_modules(model):
+    all_modules = []
+    for p in model.modules():
+        all_modules.append(p)
+    return all_modules
+
+def copy_org_to_data(model):
+    all_modules = get_all_modules(model)
+    for p in all_modules:
+        if hasattr(p, 'weight_org'):
+            p.weight_org.copy_(p.weight.data.clamp_(-1,1))
+
+def copy_data_to_org(model):
+    all_modules = get_all_modules(model)
+    for p in all_modules:
+        if hasattr(p, 'weight_org'):
+            p.weight.data.copy_(p.weight_org)
