@@ -22,6 +22,7 @@ from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset, utt_path
 import loss as loss_utils
 from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
+from scheduler import PolyScheduler
 
 def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
     best_eer = 100
@@ -34,7 +35,6 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
         os.mkdir(far_frr_curves_dir)
 
     ArcFaceLayer = ArcFace()
-    
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
         
@@ -46,28 +46,31 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             if params["optim_params"]['use_gpu']:
                 samples = samples.cuda()
                 labels = labels.cuda()
-            
-            optimizer.zero_grad()
 
             embeddings = model(samples)
             logits = classifier(embeddings)
             logits = logits.clamp(-1, 1)
             acc1, acc5 = loss_utils.accuracy(logits, labels, topk=(1, 5))
-            logits_mod = ArcFaceLayer(logits, labels)
+            #logits_mod = ArcFaceLayer(logits, labels)
+            logits_mod = logits
             loss = criterion(logits_mod, labels)
 
             losses.update(float(loss))
             top1.update(float(acc1))
             top5.update(float(acc5))
+            
 
+            optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(list(set(model.parameters()) | set(classifier.parameters())), 5)
-            optimizer.step()
-            """
             for p in model.modules():
                 if hasattr(p, 'weight_org'):
-                    p.weight.data.copy_(p.weight.data.clamp_(-1,1))
-            """
+                    p.weight.data.copy_(p.weight_org)
+            torch.nn.utils.clip_grad_norm_(list(set(model.parameters()) | set(classifier.parameters())), 5)
+            optimizer.step()
+            for p in model.modules():
+                if hasattr(p, 'weight_org'):
+                    p.weight_org.copy_(p.weight.data.clamp_(-1,1))
+
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
         
@@ -99,7 +102,11 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             checkpoint_path + ".pth",
             best_checkpoint_path + ".pth")
         
-        dummy_input = torch.zeros((1, 3, 224, 224))
+        if params["exp_params"]["model_type"] == "face":
+            dummy_input = torch.zeros((1, 3, 224, 224))
+        elif params["exp_params"]["model_type"] == "speaker":
+            dummy_input = torch.zeros((1, 1, 224, 224))
+        
         if params["optim_params"]['use_gpu']:
             dummy_input = dummy_input.cuda()
         torch.onnx.export(model, dummy_input, checkpoint_path + ".onnx")
@@ -108,7 +115,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
 
 def main():
     # *********************** process config ***********************
-    conf_name = "speaker_train.conf"
+    conf_name = "face_train.conf"
     config_path = os.path.join('conf', conf_name)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
@@ -171,11 +178,10 @@ def main():
     opt_params = [{"params": model.parameters()}, {"params": classifier.parameters()}]
     lr = params["optim_params"]['lr']
     weight_decay = params["optim_params"]['weight_decay']
-    optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
-    #optimizer = optim.SGD(opt_params, lr=lr, momentum=0.9, weight_decay=weight_decay)
-
-    # initialize scheduler
-    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    if params['optim_params']['optimizer'] == 'adamw':
+        optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
+    if params['optim_params']['optimizer'] == 'sgd':
+        optimizer = optim.SGD(opt_params, lr=lr, momentum=params['optim_params']['momentum'], weight_decay=weight_decay)
 
     if model_type == "face" and params["data_params"]["small_dataset"]:
         dir_ext = "face-small"
@@ -202,6 +208,20 @@ def main():
         select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"])
     val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
+
+    # initialize scheduler
+    if params['optim_params']['scheduler'] == 'poly':
+        scheduler = PolyScheduler(
+            optimizer=optimizer,
+            base_lr=params["optim_params"]['lr'],
+            max_steps=params["optim_params"]['end_epoch'] * len(train_loader),
+            warmup_steps=params["optim_params"]['warmup_epoch'] * len(train_loader),
+            last_epoch=-1
+        )
+    elif params['optim_params']['scheduler'] == 'step':
+        scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    else:
+        raise Exception ("Invalid schduler choice %s".format(params['optim_params']['scheduler']))
 
     num_params = sum(param.numel() for param in model.parameters())
     logger.info('Number of parmeters:{}'.format(num_params))
