@@ -71,7 +71,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
         
-        scheduler.step()
+            scheduler.step()
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
             model.eval()
             distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
