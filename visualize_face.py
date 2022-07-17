@@ -10,7 +10,7 @@ if not os.path.exists(log_vis_path):
 
 all_metrics = {
     "full precision": {
-        "log_name": "face_2022-06-30-22-58-34",
+        "log_name": "face_2022-07-06-10-29-21",
         "Epoch": [],
         "Loss": [],
         "Top1": [],
@@ -34,7 +34,7 @@ for modelName in all_metrics.keys():
     with open(log_path, 'r') as f:
         metrics = all_metrics[modelName]
         for line in f.readlines():
-            if "36800/36846" in line:
+            if "3100/3125" in line:
                 metrics["Epoch"].append(epoch_counter)
                 metrics["Loss"].append(float(line.split("Loss")[1].split(")")[0].split("(")[1]))
                 metrics["Top1"].append(float(line.split("Acc@1")[1].split(")")[0].split("(")[1]))
@@ -42,6 +42,12 @@ for modelName in all_metrics.keys():
             elif "Validation EER" in line:
                 metrics["EER"].append(float(line.split(" ")[-1]))
                 epoch_counter += 1
+        
+        metrics["Epoch"] = metrics["Epoch"][:10]
+        metrics["Loss"] = metrics["Loss"][:10]
+        metrics["Top1"] = metrics["Top1"][:10]
+        metrics["Top5"] = metrics["Top5"][:10]
+        metrics["EER"] = metrics["EER"][:10]
         
         ax_loss.plot("Epoch", "Loss", data=metrics, label=modelName)
         ax_top1.plot("Epoch", "Top1", data=metrics, label=modelName)
