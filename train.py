@@ -8,7 +8,7 @@ import shutil
 import torch
 from torch.utils.data import DataLoader
 from torch import optim
-from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, ReduceLROnPlateau
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
@@ -34,6 +34,8 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
     far_frr_curves_dir = os.path.join(log_dir, "far_frr_curves")
     if not os.path.exists(far_frr_curves_dir):
         os.mkdir(far_frr_curves_dir)
+
+    print("LR", optimizer.param_groups[0]['lr'])
 
     ArcFaceLayer = ArcFace()
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
@@ -71,7 +73,11 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
         
-            scheduler.step()
+            if not params['optim_params']['scheduler'] == "" and not params['optim_params']['scheduler'] in ["ReduceLROnPlateau"]:
+                scheduler.step()
+        if params['optim_params']['scheduler'] == 'ReduceLROnPlateau':
+            scheduler.step(losses.avg)
+        
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
             model.eval()
             distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
@@ -88,12 +94,13 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
 
         checkpoint_path = os.path.join(log_dir, "checkpoint")
         best_checkpoint_path = os.path.join(log_dir, "best_checkpoint")
+        scheduler_state_dict = scheduler.state_dict() if scheduler else None
         save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'best_eer': best_eer,
                 'optimizer' : optimizer.state_dict(),
-                'scheduler' : scheduler.state_dict()
+                'scheduler' : scheduler_state_dict
             },
             is_best,
             checkpoint_path + ".pth",
@@ -175,9 +182,11 @@ def main():
     opt_params = [{"params": model.parameters()}, {"params": classifier.parameters()}]
     lr = params["optim_params"]['lr']
     weight_decay = params["optim_params"]['weight_decay']
-    if params['optim_params']['optimizer'] == 'adamw':
+    if params['optim_params']['optimizer'] == 'adam':
+        optimizer = optim.Adam(opt_params, lr=lr, weight_decay=weight_decay)
+    elif params['optim_params']['optimizer'] == 'adamw':
         optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
-    if params['optim_params']['optimizer'] == 'sgd':
+    elif params['optim_params']['optimizer'] == 'sgd':
         optimizer = optim.SGD(opt_params, lr=lr, momentum=params['optim_params']['momentum'], weight_decay=weight_decay)
 
     if model_type == "face" and params["data_params"]["small_dataset"]:
@@ -207,7 +216,9 @@ def main():
                                 num_workers=params["data_params"]['num_workers'])
 
     # initialize scheduler
-    if params['optim_params']['scheduler'] == 'poly':
+    if params['optim_params']['scheduler'] == "":
+        scheduler = None
+    elif params['optim_params']['scheduler'] == 'poly':
         scheduler = PolyScheduler(
             optimizer=optimizer,
             base_lr=params["optim_params"]['lr'],
@@ -216,7 +227,9 @@ def main():
             last_epoch=-1
         )
     elif params['optim_params']['scheduler'] == 'step':
-        scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+        scheduler = StepLR(optimizer, step_size=25 * len(train_loader), gamma=0.5)
+    elif params['optim_params']['scheduler'] == 'ReduceLROnPlateau':
+        scheduler = ReduceLROnPlateau(optimizer, factor=0.5, patience=2, threshold=5e-2)
     else:
         raise Exception ("Invalid schduler choice %s".format(params['optim_params']['scheduler']))
 
