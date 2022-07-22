@@ -54,8 +54,10 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             logits = classifier(embeddings)
             logits = logits.clamp(-1, 1)
             acc1, acc5 = loss_utils.accuracy(logits, labels, topk=(1, 5))
-            #logits_mod = ArcFaceLayer(logits, labels)
-            logits_mod = logits
+            if params['exp_params']['useArcFace']:
+                logits_mod = ArcFaceLayer(logits, labels)
+            else:
+                logits_mod = logits
             loss = criterion(logits_mod, labels)
 
             losses.update(float(loss))
@@ -151,7 +153,7 @@ def main():
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
     input_channels = 3 if model_type == "face" else 1
-    if params["exp_params"]["dtype"] == "full_prec":
+    if params["exp_params"]["dtype"] == "float":
         model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"], input_channels=input_channels)
     elif params["exp_params"]["dtype"] == "xnor":
         model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
@@ -218,7 +220,7 @@ def main():
     # initialize scheduler
     if params['optim_params']['scheduler'] == "":
         scheduler = None
-    elif params['optim_params']['scheduler'] == 'poly':
+    elif params['optim_params']['scheduler'] == 'Poly':
         scheduler = PolyScheduler(
             optimizer=optimizer,
             base_lr=params["optim_params"]['lr'],
@@ -226,12 +228,12 @@ def main():
             warmup_steps=params["optim_params"]['warmup_epoch'] * len(train_loader),
             last_epoch=-1
         )
-    elif params['optim_params']['scheduler'] == 'step':
-        scheduler = StepLR(optimizer, step_size=25 * len(train_loader), gamma=0.5)
+    elif params['optim_params']['scheduler'] == 'StepLR':
+        scheduler = StepLR(optimizer, step_size=10 * len(train_loader), gamma=0.85)
     elif params['optim_params']['scheduler'] == 'ReduceLROnPlateau':
         scheduler = ReduceLROnPlateau(optimizer, factor=0.5, patience=2, threshold=5e-2)
     else:
-        raise Exception ("Invalid schduler choice %s".format(params['optim_params']['scheduler']))
+        raise Exception ("Invalid scheduler choice %s".format(params['optim_params']['scheduler']))
 
     num_params = sum(param.numel() for param in model.parameters())
     logger.info('Number of parmeters:{}'.format(num_params))
