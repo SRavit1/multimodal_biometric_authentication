@@ -1,31 +1,15 @@
 import os
 from matplotlib import pyplot as plt
 import glob
+import configparser
 
 log_pardir = "/home/sravit/multimodal/multimodal_biometric_authentication/exp/face"
 
 all_metrics = {
-    "Full precision": {
-        "log_name": "face_2022-07-17-21-17-27",
+    "XNOR 2/1": {
+        "log_name": "face_2022-07-22-06-47-53",
         "Epoch": [],
-        "Loss": [],
-        "Top1": [],
-        "Top5": [],
-        "LR": [],
-        "EER": []
-    },
-    "XNOR 8/8": {
-        "log_name": "face_2022-07-17-15-52-16",
-        "Epoch": [],
-        "Loss": [],
-        "Top1": [],
-        "Top5": [],
-        "LR": [],
-        "EER": []
-    },
-    "XNOR 2/2": {
-        "log_name": "face_2022-07-19-06-46-34",
-        "Epoch": [],
+        "Val Epoch": [],
         "Loss": [],
         "Top1": [],
         "Top5": [],
@@ -49,8 +33,21 @@ for modelName in all_metrics.keys():
     log_name = all_metrics[modelName]["log_name"]
     log_dir = os.path.join(log_pardir, log_name)
     log_path = glob.glob(os.path.join(log_dir, "*.log"))[0]
-    
+    config_path = glob.glob(os.path.join(log_dir, "*.conf"))[0]
+
+    config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
+    config.optionxform=str
+    config.read(config_path)
+
+    conf_params = {
+        "exp_params": {k: eval(v) for k, v in config['exp'].items()},
+        "data_params": {k: eval(v) for k, v in config['data'].items()},
+        "optim_params": {k: eval(v) for k, v in config['optimization'].items()}
+    }
+
     epoch_counter = 1
+    val_epoch_counter = 1
+    val_freq = conf_params["optim_params"]["val_frequency_epoch"]
     
     with open(log_path, 'r') as f:
         metrics = all_metrics[modelName]
@@ -65,15 +62,14 @@ for modelName in all_metrics.keys():
                 metrics["LR"].append(float(line.split(" ")[-1]))
             elif "Validation EER" in line:
                 metrics["EER"].append(float(line.split(" ")[-1]))
+                metrics["Val Epoch"].append(val_epoch_counter)
+                val_epoch_counter += val_freq
         
-        print(metrics)
-
         ax_loss.plot("Epoch", "Loss", data=metrics, label=modelName)
         ax_top1.plot("Epoch", "Top1", data=metrics, label=modelName)
         ax_top5.plot("Epoch", "Top5", data=metrics, label=modelName)
         #ax_lr.plot("Epoch", "LR", data=metrics, label=modelName)
-        metrics["Epoch"] = metrics["Epoch"][:len(metrics["EER"])]
-        ax_eer.plot("Epoch", "EER", data=metrics, label=modelName)
+        ax_eer.plot("Val Epoch", "EER", data=metrics, label=modelName)
 
 ax_loss.set_title("Loss vs Epoch")
 ax_loss.set_xlabel("Epoch")
