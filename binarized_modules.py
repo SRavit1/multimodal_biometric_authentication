@@ -458,6 +458,8 @@ def get_activation(activation_type, input_shape=(1,1,1,1), leaky_relu_slope=0.1)
             nn.ReLU(),
             Bias(input_shape[1])
         )
+    elif activation_type=="relu":
+        return nn.ReLU()
 
 def get_all_modules(model):
     all_modules = []

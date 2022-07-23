@@ -17,6 +17,7 @@ from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
 import models.resnet_dense_xnor as resnet_dense_xnor
+import models.resnet_fp as resnet_fp
 
 from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset, utt_path_to_utt
 import loss as loss_utils
@@ -35,7 +36,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
     if not os.path.exists(far_frr_curves_dir):
         os.mkdir(far_frr_curves_dir)
 
-    print("LR", optimizer.param_groups[0]['lr'])
+    logger.info("LR {}".format(optimizer.param_groups[0]['lr']))
 
     ArcFaceLayer = ArcFace()
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
@@ -121,8 +122,10 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
 
 def main():
     # *********************** process config ***********************
-    conf_name = "face_train_xnor.conf"
-    config_path = os.path.join('conf', conf_name)
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument("--conf", type=str, default="face_train_xnor.conf", help="config file to use")
+    args = parser.parse_args()
+    config_path = os.path.join('conf', args.conf)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
     config.optionxform=str
@@ -147,7 +150,7 @@ def main():
     logger = create_logger(log_dir)
 
     # write config file to expdir
-    store_path = os.path.join(log_dir, conf_name)
+    store_path = os.path.join(log_dir, args.conf)
     write_conf(config_path, store_path)
 
     # models init
@@ -159,6 +162,13 @@ def main():
         model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
             act_bw=params["exp_params"]["act_bw"],
             weight_bw=params["exp_params"]["weight_bw"],
+            activation_type=params["exp_params"]["activation"],
+            input_channels=input_channels)
+    elif params["exp_params"]["dtype"] == "fp":
+        model = resnet_fp.resnet18(num_classes=params["exp_params"]["emb_size"],
+            act_bw=params["exp_params"]["act_bw"],
+            weight_bw=params["exp_params"]["weight_bw"],
+            activation_type=params["exp_params"]["activation"],
             input_channels=input_channels)
     classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
