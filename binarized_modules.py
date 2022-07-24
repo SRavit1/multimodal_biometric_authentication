@@ -320,6 +320,20 @@ class BinarizeConv2d(nn.Conv2d):
         #        np.save(f, temp)
 
         return out
+class BWConv2d(nn.Conv2d):
+    def __init__(self, weight_bit=1, *kargs, **kwargs):
+        super(BWConv2d, self).__init__(*kargs, **kwargs)
+        self.register_buffer('weight_org', self.weight.data.clone())
+        self.weight_bit = weight_bit
+
+    def forward(self, input):
+        self.weight.data=torch.clamp(Binarize(self.weight_org.clone(), quant_mode="multi", bitwidth=self.weight_bit), min=-0.99, max=0.99)
+        out = nn.functional.conv2d(input, self.weight, None, self.stride,self.padding, self.dilation, self.groups)
+        if not self.bias is None:
+            self.bias.org=self.bias.data.clone()
+            out += self.bias.view(1, -1, 1, 1).expand_as(out)
+        
+        return out
 class Bias(nn.Module):
     def __init__(self, dim):
         super(Bias, self).__init__()
