@@ -112,12 +112,12 @@ class BasicBlock(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.q_scheme=layer_prec_config["q_scheme"]
-        self.act_bw=layer_prec_config["act_bw"]
-        self.weight_bw=layer_prec_config["weight_bw"]
-        self.activation_type=layer_prec_config["activation_type"]
-        self.leaky_relu_slope=layer_prec_config["leaky_relu_slope"]
-        self.bias=layer_prec_config["bias"]
+        self.q_scheme=layer_prec_config["q_scheme"] if "q_scheme" in layer_prec_config.keys() else None
+        self.act_bw=layer_prec_config["act_bw"] if "act_bw" in layer_prec_config.keys() else None
+        self.weight_bw=layer_prec_config["weight_bw"] if "weight_bw" in layer_prec_config.keys() else None
+        self.activation_type=layer_prec_config["activation_type"] if "activation_type" in layer_prec_config.keys() else None
+        self.leaky_relu_slope=layer_prec_config["leaky_relu_slope"] if "leaky_relu_slope" in layer_prec_config.keys() else None
+        self.bias=layer_prec_config["bias"] if "bias" in layer_prec_config.keys() else None
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -289,7 +289,7 @@ class ResNet(nn.Module):
             raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
         
         self.bn1 = norm_layer(self.inplanes)
-        self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"])
+        self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"] if "leaky_relu_slope" in conv1_config.keys() else None)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, prec_config["layer1"], 64, layers[0])
         self.layer2 = self._make_layer(block, prec_config["layer2"], 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
@@ -299,7 +299,7 @@ class ResNet(nn.Module):
         self.bn2 = norm_layer(512)
         
         fc_config = self.prec_config["fc"]
-        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * block.expansion, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"])
+        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * block.expansion, 1, 1), leaky_relu_slope=fc_config["leaky_relu_slope"] if "leaky_relu_slope" in fc_config.keys() else None)
         if fc_config["q_scheme"] == "float":
             self.fc = nn.Linear(512 * block.expansion, num_classes, bias=fc_config["bias"])
         elif fc_config["q_scheme"] == "bwn":

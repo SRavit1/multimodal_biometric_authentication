@@ -16,9 +16,6 @@ from utils import get_logger_2, check_dir, create_logger, save_checkpoint, Avera
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
-#import models.resnet_dense_xnor as resnet_dense_xnor
-#import models.resnet_fp as resnet_fp
-#import models.resnet_quantized as resnet_quantized
 
 from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset, utt_path_to_utt
 import loss as loss_utils
