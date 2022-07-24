@@ -18,6 +18,7 @@ from models.fusion import System
 import models.resnet as resnet
 import models.resnet_dense_xnor as resnet_dense_xnor
 import models.resnet_fp as resnet_fp
+import models.resnet_quantized as resnet_quantized
 
 from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset, utt_path_to_utt
 import loss as loss_utils
@@ -163,13 +164,20 @@ def main():
             act_bw=params["exp_params"]["act_bw"],
             weight_bw=params["exp_params"]["weight_bw"],
             activation_type=params["exp_params"]["activation"],
-            input_channels=input_channels)
+            input_channels=input_channels,
+            bias=params["exp_params"]["bias"])
     elif params["exp_params"]["dtype"] == "fp":
         model = resnet_fp.resnet18(num_classes=params["exp_params"]["emb_size"],
             act_bw=params["exp_params"]["act_bw"],
             weight_bw=params["exp_params"]["weight_bw"],
             activation_type=params["exp_params"]["activation"],
             input_channels=input_channels)
+        """
+        model = resnet_quantized.resnet18(num_classes=params["exp_params"]["emb_size"],
+            bitwidth=params["exp_params"]["act_bw"],
+            weight_bitwidth=params["exp_params"]["weight_bw"],
+            input_channels=input_channels)
+        """
     classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model
@@ -243,7 +251,7 @@ def main():
     elif params['optim_params']['scheduler'] == 'ReduceLROnPlateau':
         scheduler = ReduceLROnPlateau(optimizer, factor=0.5, patience=2, threshold=5e-2)
     else:
-        raise Exception ("Invalid scheduler choice %s".format(params['optim_params']['scheduler']))
+        raise Exception ("Invalid scheduler choice {}".format(params['optim_params']['scheduler']))
 
     num_params = sum(param.numel() for param in model.parameters())
     logger.info('Number of parmeters:{}'.format(num_params))

@@ -15,6 +15,16 @@ all_metrics = {
         "Top5": [],
         "LR": [],
         "EER": []
+    },
+    "FP 2/1": {
+        "log_name": "face_2022-07-22-21-58-35",
+        "Epoch": [],
+        "Val Epoch": [],
+        "Loss": [],
+        "Top1": [],
+        "Top5": [],
+        "LR": [],
+        "EER": []
     }
 }
 
