@@ -61,6 +61,13 @@ def conv3x3(in_planes: int, out_planes: int, layer_prec_config: dict, stride: in
             out_planes, kernel_size=3, stride=stride, 
             padding=dilation, groups=groups, bias=bias, 
             dilation=dilation)
+    elif q_scheme == "fp":
+        act_bw=layer_prec_config["act_bw"]
+        weight_bw=layer_prec_config["weight_bw"]
+        return binarized_modules.QuantizeConv2d(in_planes, 
+            out_planes, kernel_size=3, stride=stride, 
+            padding=dilation, groups=groups, bias=bias, 
+            dilation=dilation, bitwidth=act_bw, weight_bitwidth=weight_bw)
 
 def conv1x1(in_planes: int, out_planes: int, layer_prec_config: dict, stride: int = 1) -> nn.Conv2d:
     """1x1 convolution"""
@@ -81,6 +88,12 @@ def conv1x1(in_planes: int, out_planes: int, layer_prec_config: dict, stride: in
         return binarized_modules.BinarizeConv2d(act_bw, act_bw, weight_bw, in_planes, 
             out_planes, kernel_size=1, stride=stride,
             bias=bias)
+    elif q_scheme == "fp":
+        act_bw=layer_prec_config["act_bw"]
+        weight_bw=layer_prec_config["weight_bw"]
+        return binarized_modules.QuantizeConv2d(in_planes, 
+            out_planes, kernel_size=1, stride=stride,
+            bias=bias, bitwidth=act_bw, weight_bitwidth=weight_bw)
 
 class BasicBlock(nn.Module):
     expansion: int = 1
@@ -270,6 +283,8 @@ class ResNet(nn.Module):
             self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "xnor":
             self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "fp":
+            self.conv1 = binarized_modules.QuantizeConv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
         else:
             raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
         
@@ -291,6 +306,8 @@ class ResNet(nn.Module):
             self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], 512 * block.expansion, num_classes, bias=fc_config["bias"])
         elif fc_config["q_scheme"] == "xnor":
             self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], 512 * block.expansion, num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "fp":
+            self.fc = binarized_modules.QuantizeLinear(512 * block.expansion, num_classes, bias=fc_config["bias"], bitwidth=fc_config["act_bw"], weight_bitwidth=fc_config["weight_bw"])
         else:
             raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
 
@@ -355,10 +372,10 @@ class ResNet(nn.Module):
                 block(
                     self.inplanes,
                     planes,
+                    layer_prec_config,
                     groups=self.groups,
                     base_width=self.base_width,
                     dilation=self.dilation,
-                    layer_prec_config=layer_prec_config,
                     norm_layer=norm_layer,
                 )
             )
