@@ -194,8 +194,8 @@ class ResNet(nn.Module):
         replace_stride_with_dilation: Optional[List[bool]] = None,
         norm_layer: Optional[Callable[..., nn.Module]] = None,
         act_bw=1, weight_bw=1, 
-        activation_type="htanh", leaky_relu_slope=0.1,
-        input_channels=3, normalize_output=False, bias=False
+        activation_type="htanh",
+        bias=False, leaky_relu_slope=0.1, float_first_last=True, input_channels=3, normalize_output=False
     ) -> None:
         super().__init__()
         #_log_api_usage_once(self)
@@ -205,6 +205,7 @@ class ResNet(nn.Module):
         self.activation_type = activation_type
         self.bias = bias
         self.leaky_relu_slope = leaky_relu_slope
+        self.float_first_last = float_first_last
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -225,8 +226,10 @@ class ResNet(nn.Module):
         self.groups = groups
         self.base_width = width_per_group
 
-        #self.conv1 = binarized_modules.BinarizeConv2d(self.act_bw, self.act_bw, self.weight_bw, input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
-        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        if self.float_first_last:
+            self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=self.bias)
+        else:
+            self.conv1 = binarized_modules.BinarizeConv2d(self.act_bw, self.act_bw, self.weight_bw, input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=self.bias)
         self.bn1 = norm_layer(self.inplanes)
         self.act1 = binarized_modules.get_activation(self.activation_type, input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=self.leaky_relu_slope)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -236,9 +239,11 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.bn2 = norm_layer(512)
-        #self.fc = binarized_modules.BinarizeLinear(self.act_bw, self.act_bw, self.weight_bw, 512 * block.expansion, num_classes)
         self.act2 = binarized_modules.get_activation(self.activation_type, input_shape=(1, 512 * block.expansion, 1, 1), leaky_relu_slope=self.leaky_relu_slope)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        if self.float_first_last:
+            self.fc = nn.Linear(512 * block.expansion, num_classes)
+        else:
+            self.fc = binarized_modules.BinarizeLinear(self.act_bw, self.act_bw, self.weight_bw, 512 * block.expansion, num_classes)
 
         self.bias = bias
 

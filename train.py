@@ -165,7 +165,9 @@ def main():
             weight_bw=params["exp_params"]["weight_bw"],
             activation_type=params["exp_params"]["activation"],
             input_channels=input_channels,
-            bias=params["exp_params"]["bias"])
+            bias=params["exp_params"]["bias"],
+            float_first_last=params["exp_params"]["float_first_last"]
+            )
     elif params["exp_params"]["dtype"] == "fp":
         model = resnet_fp.resnet18(num_classes=params["exp_params"]["emb_size"],
             act_bw=params["exp_params"]["act_bw"],
