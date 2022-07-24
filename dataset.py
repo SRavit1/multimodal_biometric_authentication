@@ -16,17 +16,17 @@ import numpy as np
 import librosa
 from pydub import AudioSegment
 
-def face_path_to_face(face_path, random_transform=False):
+def face_path_to_face(face_path, random_transform=False, dim=224):
     face = Image.open(face_path)
     if random_transform:
         transform = transforms.Compose([
-            transforms.RandomResizedCrop(224),
+            transforms.RandomResizedCrop(dim),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor()
         ])
     else:
         transform = transforms.Compose([
-            transforms.Resize((224, 224)),
+            transforms.Resize((dim, dim)),
             transforms.ToTensor()
         ])
     face = transform(face)
@@ -85,12 +85,12 @@ def utt_path_to_utt(utt_path, clip_len=3):
     utt = transform(audio)
     return utt
 
-def get_random_face(spk_face_dir, video_id, random_transform=False):
+def get_random_face(spk_face_dir, video_id, random_transform=False, dim=224):
     spk_video_face_dir = os.path.join(spk_face_dir, video_id)
     
     face_path = os.path.join(spk_video_face_dir, random.choice(os.listdir(spk_video_face_dir)))
 
-    face = face_path_to_face(face_path, random_transform=random_transform)
+    face = face_path_to_face(face_path, random_transform=random_transform, dim=dim)
     return face
 
 def get_random_audio(spk_utt_dir, video_id):
@@ -117,13 +117,14 @@ def get_random_spk_sample(spk, dataset_path, select_face=True, select_audio=True
 
 # VoxCeleb1
 class Vox1ValDataset(Dataset):
-    def __init__(self, vox1_dir, select_face=True, select_audio=True, dataset='vox1-o', random_transform=False):
+    def __init__(self, vox1_dir, select_face=True, select_audio=True, dataset='vox1-o', random_transform=False, face_dim=224):
         super(Vox1ValDataset, self).__init__()
         self.vox1_dir = vox1_dir
         self.select_face = select_face
         self.select_audio = select_audio
         self.dataset = dataset
         self.random_transform = random_transform
+        self.face_dim = face_dim
         print("Using VoxCeleb1 evaluation dataset {}".format(dataset))
 
         if dataset == "vox1-o":
@@ -147,8 +148,8 @@ class Vox1ValDataset(Dataset):
         spk2, spk2_vid, _ = utt_path2.split("/")
 
         if self.select_face:
-            face1 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk1), spk1_vid, random_transform=self.random_transform)
-            face2 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk2), spk2_vid, random_transform=self.random_transform)
+            face1 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk1), spk1_vid, random_transform=self.random_transform, dim=self.face_dim)
+            face2 = get_random_face(os.path.join(self.vox1_dir, "test", "face", spk2), spk2_vid, random_transform=self.random_transform, dim=self.face_dim)
         if self.select_audio:
             utt1 = utt_path_to_utt(os.path.join(self.vox1_dir, "test", "utt", utt_path1))
             utt2 = utt_path_to_utt(os.path.join(self.vox1_dir, "test", "utt", utt_path1))

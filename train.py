@@ -111,9 +111,9 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             best_checkpoint_path + ".pth")
         
         if params["exp_params"]["model_type"] == "face":
-            dummy_input = torch.zeros((1, 3, 224, 224))
+            dummy_input = torch.zeros((1, 3, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))
         elif params["exp_params"]["model_type"] == "speaker":
-            dummy_input = torch.zeros((1, 1, 224, 224))
+            dummy_input = torch.zeros((1, 1, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))
         
         if params["optim_params"]['use_gpu']:
             dummy_input = dummy_input.cuda()
@@ -218,7 +218,7 @@ def main():
         train_dataset = datasets.ImageFolder(
             os.path.join(params["data_params"]["train_dir"], dir_ext),
             transforms.Compose([
-                transforms.RandomResizedCrop(224),
+                transforms.RandomResizedCrop(params["data_params"]["input_dim"]),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor()
             ]))
@@ -231,7 +231,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
                                 num_workers=params["data_params"]['num_workers'])
     val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
-        select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"])
+        select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"], face_dim=params["data_params"]["input_dim"])
     val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
 
