@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+import binarized_modules
+
 #from .._internally_replaced_utils import load_state_dict_from_url
 #from ..utils import _log_api_usage_once
 
@@ -37,19 +39,48 @@ model_urls = {
 }
 
 
-def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
+def conv3x3(in_planes: int, out_planes: int, layer_prec_config: dict, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, 
-        out_planes, kernel_size=3, stride=stride, 
-        padding=dilation, groups=groups, bias=False, 
-        dilation=dilation,)
+    q_scheme=layer_prec_config["q_scheme"]
+    bias=layer_prec_config["bias"]
+    if q_scheme == "float":
+        return nn.Conv2d(in_planes, 
+            out_planes, kernel_size=3, stride=stride, 
+            padding=dilation, groups=groups, bias=bias, 
+            dilation=dilation,)
+    elif q_scheme == "bwn":
+        weight_bw=layer_prec_config["weight_bw"]
+        return binarized_modules.BWConv2d(weight_bw, in_planes, 
+            out_planes, kernel_size=3, stride=stride, 
+            padding=dilation, groups=groups, bias=bias, 
+            dilation=dilation)
+    elif q_scheme == "xnor":
+        act_bw=layer_prec_config["act_bw"]
+        weight_bw=layer_prec_config["weight_bw"]
+        return binarized_modules.BinarizeConv2d(act_bw, act_bw, weight_bw, in_planes, 
+            out_planes, kernel_size=3, stride=stride, 
+            padding=dilation, groups=groups, bias=bias, 
+            dilation=dilation)
 
-
-def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
+def conv1x1(in_planes: int, out_planes: int, layer_prec_config: dict, stride: int = 1) -> nn.Conv2d:
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, 
-        out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    q_scheme=layer_prec_config["q_scheme"]
+    bias=layer_prec_config["bias"]
+    if q_scheme == "float":
+        return nn.Conv2d(in_planes, 
+            out_planes, kernel_size=1, stride=stride,
+            bias=bias)
+    elif q_scheme == "bwn":
+        weight_bw=layer_prec_config["weight_bw"]
+        return binarized_modules.BWConv2d(weight_bw, in_planes, 
+            out_planes, kernel_size=1, stride=stride,
+            bias=bias)
+    elif q_scheme == "xnor":
+        act_bw=layer_prec_config["act_bw"]
+        weight_bw=layer_prec_config["weight_bw"]
+        return binarized_modules.BinarizeConv2d(act_bw, act_bw, weight_bw, in_planes, 
+            out_planes, kernel_size=1, stride=stride,
+            bias=bias)
 
 class BasicBlock(nn.Module):
     expansion: int = 1
@@ -58,14 +89,23 @@ class BasicBlock(nn.Module):
         self,
         inplanes: int,
         planes: int,
+        layer_prec_config: dict,
         stride: int = 1,
         downsample: Optional[nn.Module] = None,
         groups: int = 1,
         base_width: int = 64,
         dilation: int = 1,
-        norm_layer: Optional[Callable[..., nn.Module]] = None,
+        norm_layer: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super().__init__()
+
+        self.q_scheme=layer_prec_config["q_scheme"]
+        self.act_bw=layer_prec_config["act_bw"]
+        self.weight_bw=layer_prec_config["weight_bw"]
+        self.activation_type=layer_prec_config["activation_type"]
+        self.leaky_relu_slope=layer_prec_config["leaky_relu_slope"]
+        self.bias=layer_prec_config["bias"]
+
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
@@ -73,14 +113,24 @@ class BasicBlock(nn.Module):
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.conv1 = conv3x3(inplanes, planes, layer_prec_config, stride=stride)
         self.bn1 = norm_layer(planes)
-        self.act = nn.ReLU()
-        self.conv2 = conv3x3(planes, planes)
+        #removed inplace due to error from torch 1.9
+        self.act = binarized_modules.get_activation(self.activation_type, input_shape=(1, planes, 1, 1), leaky_relu_slope=self.leaky_relu_slope)
+        self.conv2 = conv3x3(planes, planes, layer_prec_config)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
         self.bn3 = norm_layer(planes)
+
+    def change_bitwidth(self, wbw, abw):
+        self.conv1.input_bit = abw
+        self.conv1.weight_bit = wbw
+        self.conv2.input_bit = abw
+        self.conv2.weight_bit = wbw
+        if self.downsample is not None:
+            self.downsample.input_bit = abw
+            self.downsample.weight_bit = wbw
 
     def forward(self, x: Tensor) -> Tensor:
         #identity = x
@@ -89,13 +139,14 @@ class BasicBlock(nn.Module):
         
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.act(out)
 
+        out = self.act(out)
+        
         out = self.conv2(out)
         out = self.bn2(out)
 
         if self.downsample is not None:
-            identity = self.downsample(x)
+            identity = self.downsample(identity)
             identity = self.bn3(identity)
 
         out += identity
@@ -162,7 +213,14 @@ class Bottleneck(nn.Module):
         return out
 
 
-
+default_prec_config = {
+        "conv1": {"dtype": "float"},
+        "layer1": {"dtype": "xnor", "act_bw": 2, "weight_bw": 1},
+        "layer2": {"dtype": "xnor", "act_bw": 2, "weight_bw": 1},
+        "layer3": {"dtype": "xnor", "act_bw": 2, "weight_bw": 1},
+        "layer4": {"dtype": "xnor", "act_bw": 2, "weight_bw": 1},
+        "fc1": {"dtype": "float"}
+    }
 class ResNet(nn.Module):
     def __init__(
         self,
@@ -174,10 +232,18 @@ class ResNet(nn.Module):
         width_per_group: int = 64,
         replace_stride_with_dilation: Optional[List[bool]] = None,
         norm_layer: Optional[Callable[..., nn.Module]] = None,
-        input_channels=3, normalize_output=False
+        input_channels=3, normalize_output=False,
+        prec_config=default_prec_config
     ) -> None:
         super().__init__()
         #_log_api_usage_once(self)
+
+        self.prec_config = prec_config
+
+        l = list(self.prec_config.keys())
+        l.sort()
+        assert l == ["conv1", "fc", "layer1", "layer2", "layer3", "layer4"]
+
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
@@ -196,17 +262,37 @@ class ResNet(nn.Module):
             )
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+
+        conv1_config = self.prec_config["conv1"]
+        if conv1_config["q_scheme"] == "float":
+            self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "bwn":
+            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "xnor":
+            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        else:
+            raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
+        
         self.bn1 = norm_layer(self.inplanes)
-        self.act = nn.ReLU(inplace=True)
+        self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"])
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
+        self.layer1 = self._make_layer(block, prec_config["layer1"], 64, layers[0])
+        self.layer2 = self._make_layer(block, prec_config["layer2"], 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, prec_config["layer3"], 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, prec_config["layer4"], 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.bn2 = norm_layer(512)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        
+        fc_config = self.prec_config["fc"]
+        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * block.expansion, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"])
+        if fc_config["q_scheme"] == "float":
+            self.fc = nn.Linear(512 * block.expansion, num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "bwn":
+            self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], 512 * block.expansion, num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "xnor":
+            self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], 512 * block.expansion, num_classes, bias=fc_config["bias"])
+        else:
+            raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -225,13 +311,25 @@ class ResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
+    def change_bitwidth(self, wbw, abw):
+        #change bitwidth of all layers/submodules to new bitwidth
+        for layer in self.layer1.children():
+            layer.change_bitwidth(wbw, abw)
+        for layer in self.layer2.children():
+            layer.change_bitwidth(wbw, abw)
+        for layer in self.layer3.children():
+            layer.change_bitwidth(wbw, abw)
+        for layer in self.layer4.children():
+            layer.change_bitwidth(wbw, abw)
+
     def _make_layer(
         self,
         block: Type[Union[BasicBlock, Bottleneck]],
+        layer_prec_config: dict,
         planes: int,
         blocks: int,
         stride: int = 1,
-        dilate: bool = False,
+        dilate: bool = False
     ) -> nn.Sequential:
         norm_layer = self._norm_layer
         downsample = None
@@ -241,14 +339,15 @@ class ResNet(nn.Module):
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                conv1x1(self.inplanes, planes * block.expansion, stride),
+                conv1x1(self.inplanes, planes * block.expansion, layer_prec_config, stride),
                 norm_layer(planes * block.expansion),
             )
 
         layers = []
         layers.append(
             block(
-                self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer)
+                self.inplanes, planes, layer_prec_config, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer
+            )
         )
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
@@ -259,6 +358,7 @@ class ResNet(nn.Module):
                     groups=self.groups,
                     base_width=self.base_width,
                     dilation=self.dilation,
+                    layer_prec_config=layer_prec_config,
                     norm_layer=norm_layer,
                 )
             )
@@ -271,21 +371,23 @@ class ResNet(nn.Module):
         x = self.maxpool(x)
         x = self.bn1(x)
 
+        x = self.act1(x)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = self.act(x)
 
         x = self.avgpool(x)
         x = self.bn2(x)
+        x = self.act2(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
 
         if self.normalize_output:
-            mag = torch.sqrt(torch.sum(torch.pow(x.clone(), 2), dim=1))
-            mag = torch.unsqueeze(mag, 1)
-            x = x / mag
+          x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1))  #torch.linalg.norm(x)
+          x_norm = torch.unsqueeze(x_norm, 1)
+          x = torch.div(x, x_norm)
+
         return x
 
     def forward(self, x: Tensor) -> Tensor:
@@ -420,4 +522,3 @@ def wide_resnet101_2(pretrained: bool = False, progress: bool = True, **kwargs: 
         progress (bool): If True, displays a progress bar of the download to stderr
     """
     kwargs["width_per_group"] = 64 * 2
-    return _resnet("wide_resnet101_2", Bottleneck, [3, 4, 23, 3], pretrained, progress, **kwargs)

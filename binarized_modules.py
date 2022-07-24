@@ -121,6 +121,25 @@ class BinarizeLinear(nn.Linear):
             out += self.bias.view(1, -1).expand_as(out)
 
         return out
+
+class BWLinear(nn.Linear):
+
+    def __init__(self, input_bit=1, output_bit=1, weight_bit=1, *kargs, **kwargs):
+        super(BWLinear, self).__init__(*kargs, **kwargs)
+        self.register_buffer('weight_org', self.weight.data.clone())
+        self.weight_bit = weight_bit
+
+    def forward(self, input):
+        weight_org_clone = self.weight_org.clone()
+        weight_data=Binarize(self.weight_org, quant_mode="multi", bitwidth=self.weight_bit)
+        self.weight.data=torch.clamp(weight_data,min=-0.99,max=0.99)
+        self.weight_org = weight_org_clone #weight_org modified by Binarize function, we want it to stay the same
+        out = nn.functional.linear(input, self.weight)
+        if not self.bias is None:
+            self.bias.org=self.bias.data.clone()
+            out += self.bias.view(1, -1).expand_as(out)
+
+        return out
     
 class TernarizeLinear(nn.Linear):
 

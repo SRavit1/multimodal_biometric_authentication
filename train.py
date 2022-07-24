@@ -16,9 +16,9 @@ from utils import get_logger_2, check_dir, create_logger, save_checkpoint, Avera
 from utils_py.utils_common import write_conf
 from models.fusion import System
 import models.resnet as resnet
-import models.resnet_dense_xnor as resnet_dense_xnor
-import models.resnet_fp as resnet_fp
-import models.resnet_quantized as resnet_quantized
+#import models.resnet_dense_xnor as resnet_dense_xnor
+#import models.resnet_fp as resnet_fp
+#import models.resnet_quantized as resnet_quantized
 
 from dataset import MultimodalPairDataset, Vox1ValDataset, FaceDataset, utt_path_to_utt
 import loss as loss_utils
@@ -157,29 +157,8 @@ def main():
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
     input_channels = 3 if model_type == "face" else 1
-    if params["exp_params"]["dtype"] == "float":
-        model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"], input_channels=input_channels)
-    elif params["exp_params"]["dtype"] == "xnor":
-        model = resnet_dense_xnor.resnet18(num_classes=params["exp_params"]["emb_size"],
-            act_bw=params["exp_params"]["act_bw"],
-            weight_bw=params["exp_params"]["weight_bw"],
-            activation_type=params["exp_params"]["activation"],
-            input_channels=input_channels,
-            bias=params["exp_params"]["bias"],
-            float_first_last=params["exp_params"]["float_first_last"]
-            )
-    elif params["exp_params"]["dtype"] == "fp":
-        model = resnet_fp.resnet18(num_classes=params["exp_params"]["emb_size"],
-            act_bw=params["exp_params"]["act_bw"],
-            weight_bw=params["exp_params"]["weight_bw"],
-            activation_type=params["exp_params"]["activation"],
-            input_channels=input_channels)
-        """
-        model = resnet_quantized.resnet18(num_classes=params["exp_params"]["emb_size"],
-            bitwidth=params["exp_params"]["act_bw"],
-            weight_bitwidth=params["exp_params"]["weight_bw"],
-            input_channels=input_channels)
-        """
+    model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
+        prec_config=params["exp_params"]["prec_config"], input_channels=input_channels)
     classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model
@@ -188,10 +167,9 @@ def main():
         checkpoint = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
         state_dict = checkpoint["state_dict"]
         model.load_state_dict(state_dict, strict=False)
-        if params["exp_params"]["dtype"] == "xnor":
-            for p in model.modules():
-                if hasattr(p, 'weight_org'):
-                    p.weight_org.copy_(p.weight.data.clamp_(-1,1))
+        for p in model.modules():
+            if hasattr(p, 'weight_org'):
+                p.weight_org.copy_(p.weight.data.clamp_(-1,1))
 
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
