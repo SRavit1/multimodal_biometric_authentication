@@ -43,6 +43,13 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
         losses = AverageMeter("Loss")
         top1 = AverageMeter("Acc@1")
         top5 = AverageMeter("Acc@5")
+
+        if epoch in params["exp_params"]['prec_config_schedule'].keys():
+            prec_config = params["exp_params"]['prec_config_schedule'][epoch]
+            model.update_prec_config(prec_config, save_weights=True)
+            if params["optim_params"]['use_gpu']:
+                model = model.cuda()
+            logger.info("New precision config: " + str(prec_config))
         
         for batch_no, (samples, labels) in enumerate(train_loader):
             if params["optim_params"]['use_gpu']:
@@ -156,6 +163,8 @@ def main():
     input_channels = 3 if model_type == "face" else 1
     model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
         prec_config=params["exp_params"]["prec_config"], input_channels=input_channels)
+    logger.info("Initial precision config: " + str(model.prec_config))
+
     classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
 
     # load pretrained model

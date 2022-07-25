@@ -136,15 +136,6 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.bn3 = norm_layer(planes)
 
-    def change_bitwidth(self, wbw, abw):
-        self.conv1.input_bit = abw
-        self.conv1.weight_bit = wbw
-        self.conv2.input_bit = abw
-        self.conv2.weight_bit = wbw
-        if self.downsample is not None:
-            self.downsample.input_bit = abw
-            self.downsample.weight_bit = wbw
-
     def forward(self, x: Tensor) -> Tensor:
         #identity = x
         identity = x.clone()
@@ -251,19 +242,15 @@ class ResNet(nn.Module):
         super().__init__()
         #_log_api_usage_once(self)
 
-        self.prec_config = prec_config
-
-        l = list(self.prec_config.keys())
-        l.sort()
-        assert l == ["conv1", "fc", "layer1", "layer2", "layer3", "layer4"]
-
+        self.block = block
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
+        self.layers = layers
+        self.num_classes = num_classes
         self.normalize_output=normalize_output
+        self.input_channels = input_channels
 
-        self.inplanes = 64
-        self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
@@ -273,43 +260,12 @@ class ResNet(nn.Module):
                 "replace_stride_with_dilation should be None "
                 f"or a 3-element tuple, got {replace_stride_with_dilation}"
             )
+        self.replace_stride_with_dilation = replace_stride_with_dilation
+
         self.groups = groups
         self.base_width = width_per_group
 
-        conv1_config = self.prec_config["conv1"]
-        if conv1_config["q_scheme"] == "float":
-            self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
-        elif conv1_config["q_scheme"] == "bwn":
-            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
-        elif conv1_config["q_scheme"] == "xnor":
-            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
-        elif conv1_config["q_scheme"] == "fp":
-            self.conv1 = binarized_modules.QuantizeConv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
-        else:
-            raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
-        
-        self.bn1 = norm_layer(self.inplanes)
-        self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"] if "leaky_relu_slope" in conv1_config.keys() else None)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, prec_config["layer1"], 64, layers[0])
-        self.layer2 = self._make_layer(block, prec_config["layer2"], 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, prec_config["layer3"], 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, prec_config["layer4"], 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.bn2 = norm_layer(512)
-        
-        fc_config = self.prec_config["fc"]
-        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * block.expansion, 1, 1), leaky_relu_slope=fc_config["leaky_relu_slope"] if "leaky_relu_slope" in fc_config.keys() else None)
-        if fc_config["q_scheme"] == "float":
-            self.fc = nn.Linear(512 * block.expansion, num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "bwn":
-            self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], 512 * block.expansion, num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "xnor":
-            self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], 512 * block.expansion, num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "fp":
-            self.fc = binarized_modules.QuantizeLinear(512 * block.expansion, num_classes, bias=fc_config["bias"], bitwidth=fc_config["act_bw"], weight_bitwidth=fc_config["weight_bw"])
-        else:
-            raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
+        self.update_prec_config(prec_config, save_weights=False)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -328,16 +284,58 @@ class ResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
-    def change_bitwidth(self, wbw, abw):
-        #change bitwidth of all layers/submodules to new bitwidth
-        for layer in self.layer1.children():
-            layer.change_bitwidth(wbw, abw)
-        for layer in self.layer2.children():
-            layer.change_bitwidth(wbw, abw)
-        for layer in self.layer3.children():
-            layer.change_bitwidth(wbw, abw)
-        for layer in self.layer4.children():
-            layer.change_bitwidth(wbw, abw)
+    def update_prec_config(self, prec_config, save_weights=True):
+        if save_weights:
+            binarized_modules.copy_org_to_data(self)
+            state_dict = self.state_dict()
+        
+        self.prec_config = prec_config
+
+        self.inplanes = 64
+        self.dilation = 1
+        
+        l = list(self.prec_config.keys())
+        l.sort()
+        assert l == ["conv1", "fc", "layer1", "layer2", "layer3", "layer4"]
+
+        conv1_config = self.prec_config["conv1"]
+        if conv1_config["q_scheme"] == "float":
+            self.conv1 = nn.Conv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "bwn":
+            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "xnor":
+            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "fp":
+            self.conv1 = binarized_modules.QuantizeConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
+        else:
+            raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
+        
+        self.bn1 = self._norm_layer(self.inplanes)
+        self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"] if "leaky_relu_slope" in conv1_config.keys() else None)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(self.block, prec_config["layer1"], 64, self.layers[0])
+        self.layer2 = self._make_layer(self.block, prec_config["layer2"], 128, self.layers[1], stride=2, dilate=self.replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(self.block, prec_config["layer3"], 256, self.layers[2], stride=2, dilate=self.replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(self.block, prec_config["layer4"], 512, self.layers[3], stride=2, dilate=self.replace_stride_with_dilation[2])
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.bn2 = self._norm_layer(512)
+        
+        fc_config = self.prec_config["fc"]
+        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * self.block.expansion, 1, 1), leaky_relu_slope=fc_config["leaky_relu_slope"] if "leaky_relu_slope" in fc_config.keys() else None)
+        if fc_config["q_scheme"] == "float":
+            self.fc = nn.Linear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "bwn":
+            self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], 512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "xnor":
+            self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], 512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "fp":
+            self.fc = binarized_modules.QuantizeLinear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"], bitwidth=fc_config["act_bw"], weight_bitwidth=fc_config["weight_bw"])
+        else:
+            raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
+
+        if save_weights:
+            self.load_state_dict(state_dict, strict=False)
+            binarized_modules.copy_data_to_org(self)
 
     def _make_layer(
         self,
