@@ -124,7 +124,7 @@ class BinarizeLinear(nn.Linear):
 
 class BWLinear(nn.Linear):
 
-    def __init__(self, input_bit=1, output_bit=1, weight_bit=1, *kargs, **kwargs):
+    def __init__(self, weight_bit=1, *kargs, **kwargs):
         super(BWLinear, self).__init__(*kargs, **kwargs)
         self.register_buffer('weight_org', self.weight.data.clone())
         self.weight_bit = weight_bit
@@ -472,6 +472,30 @@ class QuantizeLinear(nn.Linear):
     def forward(self, input, quant=True, pruned=False, mult=None):
         input.data, _ = quantize(input.data, quant=quant, bitwidth=self.bitwidth)
         self.weight.data, self.mask=quantize(self.weight_org, mask=self.mask, quant=quant, pruned=pruned, mult=self.thres, bitwidth=self.weight_bitwidth)
+        out = F.linear(input, self.weight)
+        return out
+
+class ClampFloatConv2d(nn.Conv2d):
+    '''
+    Full precision Conv2d with weights clamped between -1 and 1
+    '''
+    def __init__(self, *kargs, **kwargs):
+        super(ClampFloatConv2d, self).__init__(*kargs, **kwargs)
+    
+    def forward(self, input, quant=True, pruned=False):
+        self.weight.data=torch.clamp(self.weight.data, -0.99, 0.99)
+        out = F.conv2d(input, self.weight, None, self.stride, self.padding, self.dilation, self.groups)
+        return out
+
+class ClampFloatLinear(nn.Linear):
+    '''
+    Full precision Linear with weights clamped between -1 and 1
+    '''
+    def __init__(self, *kargs, **kwargs):
+        super(ClampFloatLinear, self).__init__(*kargs, **kwargs)
+        
+    def forward(self, input, quant=True, pruned=False, mult=None):
+        self.weight.data=torch.clamp(self.weight.data, -0.99, 0.99)
         out = F.linear(input, self.weight)
         return out
 

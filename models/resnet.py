@@ -48,6 +48,11 @@ def conv3x3(in_planes: int, out_planes: int, layer_prec_config: dict, stride: in
             out_planes, kernel_size=3, stride=stride, 
             padding=dilation, groups=groups, bias=bias, 
             dilation=dilation,)
+    elif q_scheme == "clamp_float":
+        return binarized_modules.ClampFloatConv2d(in_planes, 
+            out_planes, kernel_size=3, stride=stride, 
+            padding=dilation, groups=groups, bias=bias, 
+            dilation=dilation,)
     elif q_scheme == "bwn":
         weight_bw=layer_prec_config["weight_bw"]
         return binarized_modules.BWConv2d(weight_bw, in_planes, 
@@ -75,6 +80,10 @@ def conv1x1(in_planes: int, out_planes: int, layer_prec_config: dict, stride: in
     bias=layer_prec_config["bias"]
     if q_scheme == "float":
         return nn.Conv2d(in_planes, 
+            out_planes, kernel_size=1, stride=stride,
+            bias=bias)
+    elif q_scheme == "clamp_float":
+        return binarized_modules.ClampFloatConv2d(in_planes, 
             out_planes, kernel_size=1, stride=stride,
             bias=bias)
     elif q_scheme == "bwn":
@@ -301,6 +310,8 @@ class ResNet(nn.Module):
         conv1_config = self.prec_config["conv1"]
         if conv1_config["q_scheme"] == "float":
             self.conv1 = nn.Conv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+        elif conv1_config["q_scheme"] == "clamp_float":
+            self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "bwn":
             self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "xnor":
@@ -324,6 +335,8 @@ class ResNet(nn.Module):
         self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * self.block.expansion, 1, 1), leaky_relu_slope=fc_config["leaky_relu_slope"] if "leaky_relu_slope" in fc_config.keys() else None)
         if fc_config["q_scheme"] == "float":
             self.fc = nn.Linear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+        elif fc_config["q_scheme"] == "clamp_float":
+            self.fc = binarized_modules.ClampFloatLinear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
         elif fc_config["q_scheme"] == "bwn":
             self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], 512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
         elif fc_config["q_scheme"] == "xnor":
