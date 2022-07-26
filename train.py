@@ -185,7 +185,7 @@ def main():
     criterion = torch.nn.CrossEntropyLoss()
 
     # intialize optimizer
-    opt_params = [{"params": model.parameters()}, {"params": classifier.parameters()}]
+    opt_params = [{"params": model.parameters()}, {"params": classifier.parameters(), "lr": params["optim_params"]['classifier_lr']}]
     lr = params["optim_params"]['lr']
     weight_decay = params["optim_params"]['weight_decay']
     if params['optim_params']['optimizer'] == 'adam':
