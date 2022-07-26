@@ -39,6 +39,8 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
     ArcFaceLayer = ArcFace()
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
+
+        logger.info("LR {}".format(optimizer.param_groups[0]['lr']))
         
         losses = AverageMeter("Loss")
         top1 = AverageMeter("Acc@1")
@@ -162,7 +164,8 @@ def main():
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
     input_channels = 3 if model_type == "face" else 1
     model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
-        prec_config=params["exp_params"]["prec_config"], input_channels=input_channels)
+        prec_config=params["exp_params"]["prec_config"], input_channels=input_channels,
+        normalize_output=params["exp_params"]["normalize_output"])
     logger.info("Initial precision config: " + str(model.prec_config))
 
     classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])

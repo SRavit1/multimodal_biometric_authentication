@@ -260,6 +260,8 @@ class ResNet(nn.Module):
         self.normalize_output=normalize_output
         self.input_channels = input_channels
 
+        self.sqrt_eps = 1e-3
+
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
@@ -412,7 +414,7 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         if self.normalize_output:
-          x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1))  #torch.linalg.norm(x)
+          x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1) + self.sqrt_eps)  #torch.linalg.norm(x)
           x_norm = torch.unsqueeze(x_norm, 1)
           x = torch.div(x, x_norm)
 

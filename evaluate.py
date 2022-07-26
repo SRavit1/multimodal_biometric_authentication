@@ -11,6 +11,12 @@ def compute_eer(distances, labels):
     eer = fprs[np.nanargmin(np.absolute((1 - tprs) - fprs))]
     return fprs*100, tprs*100, thresholds, eer*100
 
+def normalize_embedding(x):
+    x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1))  #torch.linalg.norm(x)
+    x_norm = torch.unsqueeze(x_norm, 1)
+    x = torch.div(x, x_norm)
+    return x
+
 def evaluate_single_modality(model, val_loader, params):
     model.eval()
     all_distances = None
@@ -20,9 +26,10 @@ def evaluate_single_modality(model, val_loader, params):
             inputs1 = inputs1.cuda()
             inputs2 = inputs2.cuda()
         with torch.no_grad():
-            embeddings1 = model(inputs1)
-            embeddings2 = model(inputs2)
+            embeddings1 = normalize_embedding(model(inputs1))
+            embeddings2 = normalize_embedding(model(inputs2))
         #distances = -1.*F.cosine_similarity(embeddings1, embeddings2).cpu().numpy()
+
         distances = torch.sqrt(torch.sum(torch.pow(embeddings2-embeddings1, 2), dim=1)).cpu().numpy()
         labels = labels.numpy()
 
