@@ -236,7 +236,7 @@ def main():
             last_epoch=-1
         )
     elif params['optim_params']['scheduler'] == 'StepLR':
-        scheduler = StepLR(optimizer, step_size=10 * len(train_loader), gamma=0.85)
+        scheduler = StepLR(optimizer, step_size=params['optim_params']['scheduler_step_size'] * len(train_loader), gamma=params['optim_params']['scheduler_gamma'])
     elif params['optim_params']['scheduler'] == 'ReduceLROnPlateau':
         scheduler = ReduceLROnPlateau(optimizer, factor=0.5, patience=2, threshold=5e-2)
     else:
