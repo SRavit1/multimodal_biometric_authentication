@@ -50,13 +50,13 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             prec_config = params["exp_params"]['prec_config_schedule'][epoch]
             model.update_prec_config(prec_config, save_weights=True)
             if params["optim_params"]['use_gpu']:
-                model = model.cuda()
+                model = model.cuda(params["optim_params"]['device'])
             logger.info("New precision config: " + str(prec_config))
         
         for batch_no, (samples, labels) in enumerate(train_loader):
             if params["optim_params"]['use_gpu']:
-                samples = samples.cuda()
-                labels = labels.cuda()
+                samples = samples.cuda(params["optim_params"]['device'])
+                labels = labels.cuda(params["optim_params"]['device'])
 
             embeddings = model(samples)
             logits = classifier(embeddings)
@@ -122,7 +122,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             dummy_input = torch.zeros((1, 1, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))
         
         if params["optim_params"]['use_gpu']:
-            dummy_input = dummy_input.cuda()
+            dummy_input = dummy_input.cuda(params["optim_params"]['device'])
         torch.onnx.export(model, dummy_input, checkpoint_path + ".onnx")
         if is_best:
             shutil.copyfile(checkpoint_path + ".onnx", best_checkpoint_path + ".onnx")
@@ -182,8 +182,8 @@ def main():
 
     # convert models to cuda
     if params["optim_params"]['use_gpu']:
-        model = model.cuda()
-        classifier = classifier.cuda()
+        model = model.cuda(params["optim_params"]['device'])
+        classifier = classifier.cuda(params["optim_params"]['device'])
 
     criterion = torch.nn.CrossEntropyLoss()
 
