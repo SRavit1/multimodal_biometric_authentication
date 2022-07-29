@@ -198,10 +198,7 @@ def main():
     elif params['optim_params']['optimizer'] == 'sgd':
         optimizer = optim.SGD(opt_params, lr=lr, momentum=params['optim_params']['momentum'], weight_decay=weight_decay)
 
-    if model_type == "face" and params["data_params"]["small_dataset"]:
-        dir_ext = "face-small"
-    else:
-        dir_ext = "face" if model_type=="face" else "utt"
+    dir_ext = "face" if model_type=="face" else "utt"
     
     if model_type == "face":
         train_dataset = datasets.ImageFolder(
@@ -217,8 +214,9 @@ def main():
             utt_path_to_utt,
             ("wav", "m4a")
         )
-    train_loader = DataLoader(train_dataset, batch_size=params["data_params"]['batch_size'], shuffle=True,
-                                num_workers=params["data_params"]['num_workers'])
+    train_sampler=torch.utils.data.RandomSampler(train_dataset, num_samples=params["data_params"]["dataset_size"], replacement=True)
+    train_loader = DataLoader(train_dataset, batch_size=params["data_params"]['batch_size'],#, shuffle=True,
+                                num_workers=params["data_params"]['num_workers'], sampler=train_sampler)
     val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
         select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"], face_dim=params["data_params"]["input_dim"])
     val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
