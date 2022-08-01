@@ -40,7 +40,15 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
     for epoch in tqdm(range(params["optim_params"]['end_epoch']), position=0):
         model.train()
 
-        logger.info("LR {}".format(optimizer.param_groups[0]['lr']))
+        if epoch == params["optim_params"]["finetune_classifier_epochs"]:
+            optimizer.add_param_group({"params": model.parameters(), "lr": params["optim_params"]["lr"]})
+
+        if len(optimizer.param_groups) == 1:
+            logger.info("Model LR {}. Classifier LR {}.".format(0,
+                optimizer.param_groups[0]['lr']))
+        else:
+            logger.info("Model LR {}. Classifier LR {}.".format(optimizer.param_groups[1]['lr'],
+                optimizer.param_groups[0]['lr']))
         
         losses = AverageMeter("Loss")
         top1 = AverageMeter("Acc@1")
@@ -188,7 +196,7 @@ def main():
     criterion = torch.nn.CrossEntropyLoss()
 
     # intialize optimizer
-    opt_params = [{"params": model.parameters()}, {"params": classifier.parameters(), "lr": params["optim_params"]['classifier_lr']}]
+    opt_params = [{"params": classifier.parameters(), "lr": params["optim_params"]['classifier_lr']}]
     lr = params["optim_params"]['lr']
     weight_decay = params["optim_params"]['weight_decay']
     if params['optim_params']['optimizer'] == 'adam':
