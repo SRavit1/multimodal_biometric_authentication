@@ -2,7 +2,6 @@ import os
 import random
 import fire
 import logging
-import h5py
 from tqdm import tqdm
 import kaldi_io
 import numpy as np
@@ -199,7 +198,7 @@ def check_dir(dir):
     if not os.path.exists(dir):
         os.mkdir(dir)
 
-
+"""
 def store_to_h5(topdir, type='face', scp_num=100):
     stream = 'copy-vector scp:{} ark:- |'
 
@@ -225,6 +224,7 @@ def store_to_h5(topdir, type='face', scp_num=100):
                 pbar.update()
 
 
+
 def kaldi_to_h5(scp_path, h5_path):
     stream = 'copy-vector scp:{} ark:- |'
 
@@ -240,7 +240,7 @@ def kaldi_to_h5(scp_path, h5_path):
             store_h5[h5_index_name] = vec
             store_index.write(h5_index_name + '\n')
             pbar.update()
-
+"""
 
 def statistic(exp_dir, noise_type):
     store_dir = os.path.join(exp_dir, 'noise_statistic')

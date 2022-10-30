@@ -296,6 +296,7 @@ class ResNet(nn.Module):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
     def update_prec_config(self, prec_config, save_weights=True):
+        print(prec_config)
         if save_weights:
             binarized_modules.copy_org_to_data(self)
             state_dict = self.state_dict()
@@ -413,6 +414,7 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
 
+        #TODO: Add batchnorm
         if self.normalize_output:
           x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1) + self.sqrt_eps)  #torch.linalg.norm(x)
           x_norm = torch.unsqueeze(x_norm, 1)
@@ -552,3 +554,38 @@ def wide_resnet101_2(pretrained: bool = False, progress: bool = True, **kwargs: 
         progress (bool): If True, displays a progress bar of the download to stderr
     """
     kwargs["width_per_group"] = 64 * 2
+
+class Combined_Model(nn.Module):
+    def __init__(self, face_model, speaker_model):
+        super(Combined_Model, self).__init__()
+        self.face_model = face_model
+        self.speaker_model = speaker_model
+
+        self.sqrt_eps = 1e-3
+
+        self.fc1 = nn.Linear(1024, 512)
+
+        """
+        for param in self.face_model.parameters():
+            param.requires_grad = False
+        for param in self.speaker_model.parameters():
+            param.requires_grad = False
+        """
+    
+    def forward(self, face, spectrogram):
+        """
+        with torch.no_grad():
+            face_embedding = self.face_model.forward(face)
+            spectrogram_embedding = self.speaker_model.forward(spectrogram)
+        """
+        face_embedding = self.face_model.forward(face)
+        spectrogram_embedding = self.speaker_model.forward(spectrogram)
+        
+        x = torch.cat((face_embedding, spectrogram_embedding), dim=1)
+        x = self.fc1(x)
+        
+        x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1) + self.sqrt_eps)  #torch.linalg.norm(x)
+        x_norm = torch.unsqueeze(x_norm, 1)
+        x = torch.div(x, x_norm)
+
+        return x

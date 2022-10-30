@@ -2,7 +2,6 @@ import os
 import random
 import fire
 import logging
-import h5py
 from tqdm import tqdm
 import kaldi_io
 import torch
@@ -128,7 +127,7 @@ def check_dir(dir):
     if not os.path.exists(dir):
         os.mkdir(dir)
 
-
+"""
 def store_to_h5(topdir, type='face', scp_num=100):
     stream = 'copy-vector scp:{} ark:- |'
 
@@ -150,6 +149,7 @@ def store_to_h5(topdir, type='face', scp_num=100):
                 store_h5[h5_index_name] = vec
                 store_index.write(h5_index_name + '\n')
                 pbar.update()
+"""
 
 
 def save_state_dict(state_dict, checkpoint_format, epoch, iters, is_best=False):

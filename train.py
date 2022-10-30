@@ -11,7 +11,6 @@ from torch import optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, ReduceLROnPlateau
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-
 from utils import get_logger_2, check_dir, create_logger, save_checkpoint, AverageMeter, plot_distances_labels, plot_far_frr
 from utils_py.utils_common import write_conf
 from models.fusion import System
@@ -23,6 +22,13 @@ from loss import AngularPenaltySMLoss, ArcFace
 from evaluate import evaluate_single_modality
 from scheduler import PolyScheduler
 from binarized_modules import copy_data_to_org, copy_org_to_data
+
+import numpy as np
+
+seed = 0
+torch.manual_seed(seed)
+np.random.seed(seed)
+torch.backends.cudnn.deterministic=True
 
 def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
     best_eer = 100
@@ -67,6 +73,10 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
                 labels = labels.cuda(params["optim_params"]['device'])
 
             embeddings = model(samples)
+            if (torch.any(torch.isnan(embeddings))):
+                print("NAN VALUE ENCOUNTERED")
+            if (torch.any(torch.isinf(embeddings))):
+                print("INF VALUE ENCOUNTERED")
             logits = classifier(embeddings)
             logits = logits.clamp(-1, 1)
             acc1, acc5 = loss_utils.accuracy(logits, labels, topk=(1, 5))
@@ -91,11 +101,11 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             if batch_no % params["optim_params"]["print_frequency_batch"] == 0:
                 logger.info("Epoch [{}] Batch {}/{} {} {} {}".format(epoch, batch_no, len(train_loader), str(losses), str(top1), str(top5)))
         
-            if not params['optim_params']['scheduler'] == "" and not params['optim_params']['scheduler'] in ["ReduceLROnPlateau"]:
+            if not params['optim_params']['scheduler'] == "" and not params['optim_params']['scheduler'] in ['ReduceLROnPlateau', 'StepLR']:
                 scheduler.step()
-        if params['optim_params']['scheduler'] == 'ReduceLROnPlateau':
+        if params['optim_params']['scheduler'] in ['ReduceLROnPlateau', 'StepLR']:
             scheduler.step(losses.avg)
-        
+
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
             model.eval()
             distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
@@ -116,6 +126,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
         save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
+                'classifier_state_dict': classifier.state_dict(),
                 'best_eer': best_eer,
                 'optimizer' : optimizer.state_dict(),
                 'scheduler' : scheduler_state_dict
@@ -124,11 +135,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             checkpoint_path + ".pth",
             best_checkpoint_path + ".pth")
         
-        if params["exp_params"]["model_type"] == "face":
-            dummy_input = torch.zeros((1, 3, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))
-        elif params["exp_params"]["model_type"] == "speaker":
-            dummy_input = torch.zeros((1, 1, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))
-        
+        dummy_input = torch.zeros((1, model.input_channels, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))        
         if params["optim_params"]['use_gpu']:
             dummy_input = dummy_input.cuda(params["optim_params"]['device'])
         torch.onnx.export(model, dummy_input, checkpoint_path + ".onnx")
@@ -139,6 +146,7 @@ def main():
     # *********************** process config ***********************
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--conf", type=str, default="face_train_xnor.conf", help="config file to use")
+    parser.add_argument("--validate", action="store_true", help="flag to run validation")
     args = parser.parse_args()
     config_path = os.path.join('conf', args.conf)
     
@@ -153,7 +161,9 @@ def main():
     }
     # *********************** process config ***********************
     model_type = params["exp_params"]["model_type"]
+    dir_ext = "face" if model_type=="face" else "utt"
     assert model_type in ["face", "speaker"]
+    input_channels = 3 if model_type == "face" else 3
 
     # setup logger
     check_dir(params["exp_params"]['exp_dir'])
@@ -170,13 +180,54 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
-    input_channels = 3 if model_type == "face" else 1
+    #input_channels = 3 if model_type == "face" else 1
     model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
         prec_config=params["exp_params"]["prec_config"], input_channels=input_channels,
         normalize_output=params["exp_params"]["normalize_output"])
-    logger.info("Initial precision config: " + str(model.prec_config))
+    #model = resnet.CNN_medium(full=True, binary=False, input_channels=input_channels)
+    #logger.info("Initial precision config: " + str(model.prec_config))
 
     classifier = torch.nn.Linear(params["exp_params"]["emb_size"], params["exp_params"]["num_classes"])
+    # convert models to cuda
+    if params["optim_params"]['use_gpu']:
+        model = model.cuda(params["optim_params"]['device'])
+        classifier = classifier.cuda(params["optim_params"]['device'])
+
+    if model_type == "face":
+        train_dataset = datasets.ImageFolder(
+            os.path.join(params["data_params"]["train_dir"], dir_ext),
+            transforms.Compose([
+                #transforms.RandomResizedCrop(params["data_params"]["input_dim"]),
+                transforms.Resize((params["data_params"]["input_dim"], params["data_params"]["input_dim"])),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor()
+            ]))
+    elif model_type == "speaker":
+        #"""
+        train_dataset = datasets.ImageFolder(
+            os.path.join(params["data_params"]["train_dir"], "utt-im"),
+            transforms.Compose([
+                transforms.Resize((params["data_params"]["input_dim"], params["data_params"]["input_dim"])),
+                transforms.ToTensor()
+            ]))
+        #"""
+        """
+        train_dataset = datasets.DatasetFolder(
+            os.path.join(params["data_params"]["train_dir"], "utt"),
+            transforms.Compose([
+                utt_path_to_utt,
+            ]),
+            ("wav", "m4a")
+        )
+        """
+    train_sampler=torch.utils.data.RandomSampler(train_dataset, num_samples=params["data_params"]["dataset_size"], replacement=True)
+    train_loader = DataLoader(train_dataset, batch_size=params["data_params"]['batch_size'],#, shuffle=True,
+                                num_workers=params["data_params"]['num_workers'], sampler=train_sampler, pin_memory=True)
+
+    val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
+        select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"], dim=params["data_params"]["input_dim"])
+    val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
+                                num_workers=params["data_params"]['num_workers'])
 
     # load pretrained model
     if params["exp_params"]["pretrained"]:
@@ -184,14 +235,17 @@ def main():
         checkpoint = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
         state_dict = checkpoint["state_dict"]
         model.load_state_dict(state_dict, strict=False)
+        if "classifier_state_dict" in checkpoint.keys():
+            classifier_state_dict = checkpoint["classifier_state_dict"]
+            classifier.load_state_dict(classifier_state_dict)
         for p in model.modules():
             if hasattr(p, 'weight_org'):
                 p.weight_org.copy_(p.weight.data.clamp_(-1,1))
 
-    # convert models to cuda
-    if params["optim_params"]['use_gpu']:
-        model = model.cuda(params["optim_params"]['device'])
-        classifier = classifier.cuda(params["optim_params"]['device'])
+    if args.validate:
+        all_distances, all_labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
+        print("Validation EER on {} dataset: {:.2f}".format(params["data_params"]["val_dataset"], eer))
+        exit(0)
 
     criterion = torch.nn.CrossEntropyLoss()
 
@@ -205,30 +259,6 @@ def main():
         optimizer = optim.AdamW(opt_params, lr=lr, weight_decay=weight_decay)
     elif params['optim_params']['optimizer'] == 'sgd':
         optimizer = optim.SGD(opt_params, lr=lr, momentum=params['optim_params']['momentum'], weight_decay=weight_decay)
-
-    dir_ext = "face" if model_type=="face" else "utt"
-    
-    if model_type == "face":
-        train_dataset = datasets.ImageFolder(
-            os.path.join(params["data_params"]["train_dir"], dir_ext),
-            transforms.Compose([
-                transforms.RandomResizedCrop(params["data_params"]["input_dim"]),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor()
-            ]))
-    elif model_type == "speaker":
-        train_dataset = datasets.DatasetFolder(
-            os.path.join(params["data_params"]["train_dir"], "utt"),
-            utt_path_to_utt,
-            ("wav", "m4a")
-        )
-    train_sampler=torch.utils.data.RandomSampler(train_dataset, num_samples=params["data_params"]["dataset_size"], replacement=True)
-    train_loader = DataLoader(train_dataset, batch_size=params["data_params"]['batch_size'],#, shuffle=True,
-                                num_workers=params["data_params"]['num_workers'], sampler=train_sampler)
-    val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
-        select_face=(model_type=="face"), select_audio=(model_type=="speaker"), dataset=params["data_params"]["val_dataset"], face_dim=params["data_params"]["input_dim"])
-    val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
-                                num_workers=params["data_params"]['num_workers'])
 
     # initialize scheduler
     if params['optim_params']['scheduler'] == "":

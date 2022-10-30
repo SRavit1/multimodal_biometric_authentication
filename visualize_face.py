@@ -6,8 +6,8 @@ import configparser
 log_pardir = "/home/sravit/multimodal/multimodal_biometric_authentication/exp/face"
 
 all_metrics = {
-    "XNOR 2/1": {
-        "log_name": "face_2022-07-22-06-47-53",
+    "Floating point 224x224 input": {
+        "log_name": "face_2022-08-05-19-46-41",
         "Epoch": [],
         "Val Epoch": [],
         "Loss": [],
@@ -16,8 +16,8 @@ all_metrics = {
         "LR": [],
         "EER": []
     },
-    "FP 2/1": {
-        "log_name": "face_2022-07-22-21-58-35",
+    "Floating point 56x56 input": {
+        "log_name": "face_2022-08-05-19-40-02",
         "Epoch": [],
         "Val Epoch": [],
         "Loss": [],
@@ -29,7 +29,7 @@ all_metrics = {
 }
 
 
-log_vis_path = os.path.join(log_pardir, list(all_metrics.values())[0]["log_name"], "vis")
+log_vis_path = os.path.join(log_pardir, "vis", "56vs224")
 if not os.path.exists(log_vis_path):
     os.mkdir(log_vis_path)
 
@@ -69,7 +69,7 @@ for modelName in all_metrics.keys():
                 metrics["Top5"].append(float(line.split("Acc@5")[1].split(")")[0].split("(")[1]))
                 epoch_counter += 1
             elif "LR" in line:
-                metrics["LR"].append(float(line.split(" ")[-1]))
+                metrics["LR"].append(float(line.split(" ")[-1][:-3]))
             elif "Validation EER" in line:
                 metrics["EER"].append(float(line.split(" ")[-1]))
                 metrics["Val Epoch"].append(val_epoch_counter)

@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--conf", type=str, default="face_val_xnor.conf", help="config file to use")
     args = parser.parse_args()
-    config_path = os.path.join('conf', args.conf)
+    config_path = os.path.join('/home/sravit/multimodal/multimodal_biometric_authentication/conf', args.conf)
     
     config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
     config.optionxform=str
@@ -38,7 +38,7 @@ def main():
     params = {
         "exp_params": {k: eval(v) for k, v in config['exp'].items()},
         "data_params": {k: eval(v) for k, v in config['data'].items()},
-        "optim_params": {k: eval(v) for k, v in config['optim'].items()}
+        "optim_params": {k: eval(v) for k, v in config['optimization'].items()}
     }
     # *********************** process config ***********************
     model_type = params["exp_params"]["model_type"]

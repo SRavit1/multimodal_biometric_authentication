@@ -21,7 +21,7 @@ def evaluate_single_modality(model, val_loader, params):
     model.eval()
     all_distances = None
     all_labels = None
-    for labels, inputs1, inputs2 in tqdm(val_loader, position=1, desc='evaluation'):
+    for i, (labels, inputs1, inputs2) in tqdm(enumerate(val_loader), position=1, desc='evaluation'):
         if params["optim_params"]['use_gpu']:
             inputs1 = inputs1.cuda(params["optim_params"]['device'])
             inputs2 = inputs2.cuda(params["optim_params"]['device'])
@@ -49,23 +49,25 @@ def evaluate_single_modality(model, val_loader, params):
     assert np.max(thresholds) >= 0 and np.max(thresholds) <= 2
     return all_distances, all_labels, fprs, tprs, thresholds, eer
 
-def evaluate_multimodal(fusion_model, face_model, audio_model, test_loader, params):
+def evaluate_multimodal(model, val_loader, params):
+    model.eval()
     all_distances = None
     all_labels = None
-    for labels, face1, utt1, face2, utt2 in tqdm(test_loader, position=1, desc='evaluation'):
+    for i, (labels, face1, utt1, face2, utt2) in tqdm(enumerate(val_loader), position=1, desc='evaluation'):
+        #TODO: Remove
+        if i==50:
+            break
+        
         if params["optim_params"]['use_gpu']:
             face1 = face1.cuda(params["optim_params"]['device'])
             face2 = face2.cuda(params["optim_params"]['device'])
-            utt1 = utt1.cuda(params["optim_params"]['device'])
-            utt2 = utt2.cuda(params["optim_params"]['device'])
+            spectrogram1 = utt1.cuda(params["optim_params"]['device'])
+            spectrogram2 = utt2.cuda(params["optim_params"]['device'])
         with torch.no_grad():
-            face_embeddings1 = face_model(face1)
-            face_embeddings2 = face_model(face2)
-            audio_embeddings1 = audio_model(utt1)
-            audio_embeddings2 = audio_model(utt2)
-            fusion_embeddings1, _, _ = fusion_model(face_embeddings1, audio_embeddings1)
-            fusion_embeddings2, _, _ = fusion_model(face_embeddings2, audio_embeddings2)
-        distances = F.cosine_similarity(fusion_embeddings1, fusion_embeddings2).cpu().numpy()
+            embeddings1 = model(face1, spectrogram1)
+            embeddings2 = model(face2, spectrogram2)
+
+        distances = torch.sqrt(torch.sum(torch.pow(embeddings2-embeddings1, 2), dim=1)).cpu().numpy()
         labels = labels.numpy()
 
         if all_distances is not None:
@@ -75,5 +77,11 @@ def evaluate_multimodal(fusion_model, face_model, audio_model, test_loader, para
             all_distances = distances
             all_labels = labels
 
-    eer = compute_eer(all_distances, all_labels)
-    return eer
+    # compute_eer expects array of similarity values
+    # because we have distance values, we negate all_distances
+    assert np.min(all_distances) >= 0 and np.min(all_distances) <= 2
+    assert np.max(all_distances) >= 0 and np.max(all_distances) <= 2
+    fprs, tprs, thresholds, eer = compute_eer(-1.*all_distances, all_labels)
+    thresholds *= -1.
+    assert np.max(thresholds) >= 0 and np.max(thresholds) <= 2
+    return all_distances, all_labels, fprs, tprs, thresholds, eer
