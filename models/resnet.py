@@ -181,6 +181,7 @@ class Bottleneck(nn.Module):
         self,
         inplanes: int,
         planes: int,
+        layer_prec_config: dict,
         stride: int = 1,
         downsample: Optional[nn.Module] = None,
         groups: int = 1,
@@ -189,17 +190,25 @@ class Bottleneck(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
     ) -> None:
         super().__init__()
+
+        self.q_scheme=layer_prec_config["q_scheme"] if "q_scheme" in layer_prec_config.keys() else None
+        self.act_bw=layer_prec_config["act_bw"] if "act_bw" in layer_prec_config.keys() else None
+        self.weight_bw=layer_prec_config["weight_bw"] if "weight_bw" in layer_prec_config.keys() else None
+        self.activation_type=layer_prec_config["activation_type"] if "activation_type" in layer_prec_config.keys() else None
+        self.leaky_relu_slope=layer_prec_config["leaky_relu_slope"] if "leaky_relu_slope" in layer_prec_config.keys() else None
+        self.bias=layer_prec_config["bias"] if "bias" in layer_prec_config.keys() else None
+        
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.0)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv1x1(inplanes, width)
+        self.conv1 = conv1x1(inplanes, width, layer_prec_config)
         self.bn1 = norm_layer(width)
-        self.conv2 = conv3x3(width, width, stride, groups, dilation)
+        self.conv2 = conv3x3(width, width, layer_prec_config, stride, groups, dilation)
         self.bn2 = norm_layer(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
+        self.conv3 = conv1x1(width, planes * self.expansion, layer_prec_config)
         self.bn3 = norm_layer(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
+        self.act = binarized_modules.get_activation(self.activation_type, input_shape=(1, planes, 1, 1), leaky_relu_slope=self.leaky_relu_slope)
         self.downsample = downsample
         self.stride = stride
 
@@ -208,11 +217,11 @@ class Bottleneck(nn.Module):
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.act(out)
 
         out = self.conv2(out)
         out = self.bn2(out)
-        out = self.relu(out)
+        out = self.act(out)
 
         out = self.conv3(out)
         out = self.bn3(out)
@@ -221,7 +230,7 @@ class Bottleneck(nn.Module):
             identity = self.downsample(x)
 
         out += identity
-        out = self.relu(out)
+        out = self.act(out)
 
         return out
 
@@ -329,25 +338,50 @@ class ResNet(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(self.block, prec_config["layer1"], 64, self.layers[0])
         self.layer2 = self._make_layer(self.block, prec_config["layer2"], 128, self.layers[1], stride=2, dilate=self.replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(self.block, prec_config["layer3"], 256, self.layers[2], stride=2, dilate=self.replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(self.block, prec_config["layer4"], 512, self.layers[3], stride=2, dilate=self.replace_stride_with_dilation[2])
+        self.bn_dim = 128
+        if len(self.layers) >= 3:
+            self.layer3 = self._make_layer(self.block, prec_config["layer3"], 256, self.layers[2], stride=2, dilate=self.replace_stride_with_dilation[1])
+            self.bn_dim = 256
+        else:
+            self.layer3 = nn.Identity()
+        if len(self.layers) >= 4:
+            self.layer4 = self._make_layer(self.block, prec_config["layer4"], 512, self.layers[3], stride=2, dilate=self.replace_stride_with_dilation[2])
+            self.bn_dim = 512 if self.block==BasicBlock else 2048
+        else:
+            self.layer4 = nn.Identity()
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.bn2 = self._norm_layer(512)
+        self.bn2 = self._norm_layer(self.bn_dim)
         
         fc_config = self.prec_config["fc"]
-        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, 512 * self.block.expansion, 1, 1), leaky_relu_slope=fc_config["leaky_relu_slope"] if "leaky_relu_slope" in fc_config.keys() else None)
-        if fc_config["q_scheme"] == "float":
-            self.fc = nn.Linear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "clamp_float":
-            self.fc = binarized_modules.ClampFloatLinear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "bwn":
-            self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], 512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "xnor":
-            self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], 512 * self.block.expansion, self.num_classes, bias=fc_config["bias"])
-        elif fc_config["q_scheme"] == "fp":
-            self.fc = binarized_modules.QuantizeLinear(512 * self.block.expansion, self.num_classes, bias=fc_config["bias"], bitwidth=fc_config["act_bw"], weight_bitwidth=fc_config["weight_bw"])
+        self.act2 = binarized_modules.get_activation(fc_config["activation_type"], input_shape=(1, self.bn_dim * self.block.expansion, 1, 1), leaky_relu_slope=fc_config["leaky_relu_slope"] if "leaky_relu_slope" in fc_config.keys() else None)
+        if self.block == BasicBlock:
+            if fc_config["q_scheme"] == "float":
+                self.fc = nn.Linear(self.bn_dim * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "clamp_float":
+                self.fc = binarized_modules.ClampFloatLinear(self.bn_dim * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "bwn":
+                self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], self.bn_dim * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "xnor":
+                self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], self.bn_dim * self.block.expansion, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "fp":
+                self.fc = binarized_modules.QuantizeLinear(self.bn_dim * self.block.expansion, self.num_classes, bias=fc_config["bias"], bitwidth=fc_config["act_bw"], weight_bitwidth=fc_config["weight_bw"])
+            else:
+                raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
         else:
-            raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
+            if fc_config["q_scheme"] == "float":
+                self.fc = nn.Linear(self.bn_dim, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "clamp_float":
+                self.fc = binarized_modules.ClampFloatLinear(self.bn_dim, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "bwn":
+                self.fc = binarized_modules.BWLinear(fc_config["weight_bw"], self.bn_dim, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "xnor":
+                self.fc = binarized_modules.BinarizeLinear(fc_config["act_bw"], fc_config["act_bw"], fc_config["weight_bw"], self.bn_dim, self.num_classes, bias=fc_config["bias"])
+            elif fc_config["q_scheme"] == "fp":
+                self.fc = binarized_modules.QuantizeLinear(self.bn_dim, self.num_classes, bias=fc_config["bias"], bitwidth=fc_config["act_bw"], weight_bitwidth=fc_config["weight_bw"])
+            else:
+                raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
+
+        self.bn3 = nn.BatchNorm1d(self.num_classes)
 
         if save_weights:
             self.load_state_dict(state_dict, strict=False)
@@ -401,7 +435,7 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.maxpool(x)
         x = self.bn1(x)
-
+        
         x = self.act1(x)
         x = self.layer1(x)
         x = self.layer2(x)
@@ -413,6 +447,7 @@ class ResNet(nn.Module):
         x = self.act2(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
+        x = self.bn3(x)
 
         #TODO: Add batchnorm
         if self.normalize_output:
@@ -439,8 +474,28 @@ def _resnet(
     #if pretrained:
         #state_dict = load_state_dict_from_url(model_urls[arch], progress=progress)
         #model.load_state_dict(state_dict)
+    """
+    total = 0
+    for p in model.parameters():
+        count = 1
+        for e in p.size():
+            count *= e
+        total += count
+    print("Total parameters", total)
+    exit(0)
+    """
     return model
 
+
+def resnetCustomLayers(pretrained: bool = False, progress: bool = True, input_channels=3, normalize_output=True, layers=[2, 2, 2, 2], blockType="BasicBlock", **kwargs: Any) -> ResNet:
+    r"""ResNet-18 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet("resnet18", BasicBlock if blockType=="BasicBlock" else Bottleneck, layers, pretrained, progress, input_channels=input_channels, normalize_output=normalize_output, **kwargs)
 
 def resnet18(pretrained: bool = False, progress: bool = True, input_channels=3, normalize_output=True, **kwargs: Any) -> ResNet:
     r"""ResNet-18 model from
