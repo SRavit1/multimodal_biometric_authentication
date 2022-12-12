@@ -1,4 +1,3 @@
-from operator import truediv
 import os
 import argparse
 import configparser
@@ -179,12 +178,13 @@ def main():
 
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
-    face_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
+    blockType = params["exp_params"]["blockType"] if "blockType" in params["exp_params"].keys() else "BasicBlock"
+    face_model = resnet.resnetCustomLayers(num_classes=params["exp_params"]["emb_size"],
         prec_config=params["exp_params"]["face_prec_config"], input_channels=3,
-        normalize_output=params["exp_params"]["normalize_output"])
-    speaker_model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
+        normalize_output=params["exp_params"]["normalize_output"], layers=params["exp_params"]["resnet_layers"], blockType=blockType)
+    speaker_model = resnet.resnetCustomLayers(num_classes=params["exp_params"]["emb_size"],
         prec_config=params["exp_params"]["speaker_prec_config"], input_channels=3,
-        normalize_output=params["exp_params"]["normalize_output"])
+        normalize_output=params["exp_params"]["normalize_output"], layers=params["exp_params"]["resnet_layers"], blockType=blockType)
     model = resnet.Combined_Model(face_model, speaker_model)
     
     classifier = torch.nn.Linear(params["exp_params"]["combined_emb_size"], params["exp_params"]["num_classes"])
@@ -198,7 +198,7 @@ def main():
                                 num_workers=params["data_params"]['num_workers'], sampler=train_sampler, pin_memory=True)
 
     val_dataset = Vox1ValDataset(os.path.join(params["data_params"]["test_dir"], os.pardir),
-        select_face=True, select_audio=truediv, dataset=params["data_params"]["val_dataset"], dim=params["data_params"]["input_dim"])
+        select_face=True, select_audio=True, dataset=params["data_params"]["val_dataset"], dim=params["data_params"]["input_dim"])
     val_loader = DataLoader(val_dataset, batch_size=params["data_params"]['batch_size'], shuffle=False,
                                 num_workers=params["data_params"]['num_workers'])
 

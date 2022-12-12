@@ -181,9 +181,10 @@ def main():
     # models init
     params["optim_params"]['use_gpu'] = params["optim_params"]['use_gpu'] and torch.cuda.is_available()
     #input_channels = 3 if model_type == "face" else 1
-    model = resnet.resnet18(num_classes=params["exp_params"]["emb_size"],
+    blockType = params["exp_params"]["blockType"] if "blockType" in params["exp_params"].keys() else "BasicBlock"
+    model = resnet.resnetCustomLayers(num_classes=params["exp_params"]["emb_size"],
         prec_config=params["exp_params"]["prec_config"], input_channels=input_channels,
-        normalize_output=params["exp_params"]["normalize_output"])
+        normalize_output=params["exp_params"]["normalize_output"], layers=params["exp_params"]["resnet_layers"], blockType=blockType)
     #model = resnet.CNN_medium(full=True, binary=False, input_channels=input_channels)
     #logger.info("Initial precision config: " + str(model.prec_config))
 
