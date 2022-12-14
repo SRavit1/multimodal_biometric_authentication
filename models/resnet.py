@@ -321,21 +321,21 @@ class ResNet(nn.Module):
 
         conv1_config = self.prec_config["conv1"]
         if conv1_config["q_scheme"] == "float":
-            self.conv1 = nn.Conv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+            self.conv1 = nn.Conv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "clamp_float":
-            self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "bwn":
-            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "xnor":
-            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "fp":
-            self.conv1 = binarized_modules.QuantizeConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
+            self.conv1 = binarized_modules.QuantizeConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
         else:
             raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
         
         self.bn1 = self._norm_layer(self.inplanes)
         self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"] if "leaky_relu_slope" in conv1_config.keys() else None)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
         self.layer1 = self._make_layer(self.block, prec_config["layer1"], 64, self.layers[0])
         self.layer2 = self._make_layer(self.block, prec_config["layer2"], 128, self.layers[1], stride=2, dilate=self.replace_stride_with_dilation[0])
         self.bn_dim = 128
@@ -435,8 +435,8 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.maxpool(x)
         x = self.bn1(x)
-        
         x = self.act1(x)
+
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)

@@ -3,6 +3,7 @@ import models.resnet
 import compile_utils
 import binarized_modules
 
+"""
 xy = 4
 z = 32
 kz = 32
@@ -11,7 +12,7 @@ pd = 0
 pl = 2
 
 conv_layer = binarized_modules.BinarizeConv2d(1, 1, 1, z, kz, kxy, stride=1, padding=pd, bias=False)
-bn_layer = torch.nn.BatchNorm2d(kz).eval()
+bn_layer = torch.nn.BatchNorm2d(kz)
 with torch.no_grad():
     for p in [bn_layer.running_mean, bn_layer.running_var, bn_layer.weight, bn_layer.bias]:
         p.copy_(torch.rand(p.shape))
@@ -27,8 +28,7 @@ model.eval()
 layer = "test"
 layer_input = (torch.randint(low=0, high=2, size=(1, z, xy, xy)).float()-0.5)
 compile_utils.compile_conv_block(conv_layer, bn_layer, layer_input, pool_layer=pool_layer, label=layer, save_to="/home/sravit/3pxnet/3pxnet-inference/examples/conv" + layer + ".h", print_=False)
-
-exit(0)
+"""
 
 prec_config = {
         "conv1": {"q_scheme": "bwn", "bias": False, "weight_bw": 1, "activation_type": "relu", "leaky_relu_slope": 0.},
@@ -79,13 +79,19 @@ model = models.resnet.resnetCustomLayers(layers=[2, 2], prec_config=prec_config)
 model.load_state_dict(torch.load("/home/sravit/models/resnet10.pth"))
 model.eval()
 
-x = torch.ones((1, 3, 224, 224))
-model.forward(x)
+#x = torch.ones((1, 3, 224, 224))
+#model.forward(x)
 
 layers_list = list(model.modules())
-for layer in ["2_1"]: #resnet10_conv_layers:
-    layer_input = torch.full(resnet10_layer_input_shape_map["conv" + layer], -1).float()
+layer_input = (torch.randint(low=0, high=2, size=resnet10_layer_input_shape_map["conv2_1"]).float()-0.5)
+#layer_input = layers_list[resnet10_layer_index_map["conv" + "2_1"]](layer_input)
+#layer_input = layers_list[resnet10_layer_index_map["bn" + "2_1"]](layer_input)
+#print(layer_input)
+for layer in ["2_1", "2_2"]: #resnet10_conv_layers:
     compile_utils.compile_conv_block(layers_list[resnet10_layer_index_map["conv" + layer]], layers_list[resnet10_layer_index_map["bn" + layer]], layer_input, label=layer, save_to="/home/sravit/3pxnet/3pxnet-inference/examples/conv" + layer + ".h", print_=False)
+    layer_input = layers_list[resnet10_layer_index_map["conv" + layer]](layer_input)
+    layer_input = layers_list[resnet10_layer_index_map["bn" + layer]](layer_input)
+
 
 #torch.save(model.state_dict(), "/home/sravit/models/resnet10.pth")
 #torch.onnx.export(model, torch.zeros((1, 3, 224, 224)), "/home/sravit/models/resnet10.onnx")
