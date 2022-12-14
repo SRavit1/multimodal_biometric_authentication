@@ -3,33 +3,6 @@ import models.resnet
 import compile_utils
 import binarized_modules
 
-"""
-xy = 4
-z = 32
-kz = 32
-kxy = 1
-pd = 0
-pl = 2
-
-conv_layer = binarized_modules.BinarizeConv2d(1, 1, 1, z, kz, kxy, stride=1, padding=pd, bias=False)
-bn_layer = torch.nn.BatchNorm2d(kz)
-with torch.no_grad():
-    for p in [bn_layer.running_mean, bn_layer.running_var, bn_layer.weight, bn_layer.bias]:
-        p.copy_(torch.rand(p.shape))
-pool_layer = torch.nn.MaxPool2d(pl, stride=pl)
-model = torch.nn.Sequential(
-    conv_layer,
-    pool_layer,
-    bn_layer,
-    #torch.nn.Hardtanh(),
-)
-model.eval()
-
-layer = "test"
-layer_input = (torch.randint(low=0, high=2, size=(1, z, xy, xy)).float()-0.5)
-compile_utils.compile_conv_block(conv_layer, bn_layer, layer_input, pool_layer=pool_layer, label=layer, save_to="/home/sravit/3pxnet/3pxnet-inference/examples/conv" + layer + ".h", print_=False)
-"""
-
 prec_config = {
         "conv1": {"q_scheme": "bwn", "bias": False, "weight_bw": 1, "activation_type": "relu", "leaky_relu_slope": 0.},
         "layer1": {"q_scheme": "xnor", "bias": False, "act_bw": 1, "weight_bw": 1, "activation_type": "relu", "leaky_relu_slope": 0.},
@@ -38,7 +11,6 @@ prec_config = {
         "layer4": {"q_scheme": "xnor", "bias": False, "act_bw": 1, "weight_bw": 1, "activation_type": "relu", "leaky_relu_slope": 0.},
         "fc": {"q_scheme": "xnor", "bias": False, "act_bw": 1, "weight_bw": 1, "activation_type": "relu", "leaky_relu_slope": 0.}
     }
-
 resnet10_conv_layers = ["2_1", "2_2", "3_1", "3_2", "4_1", "4_2", "4_d", "5_1", "5_2"]
 resnet10_layer_index_map = {
     "conv1": 1,
@@ -79,14 +51,13 @@ model = models.resnet.resnetCustomLayers(layers=[2, 2], prec_config=prec_config)
 model.load_state_dict(torch.load("/home/sravit/models/resnet10.pth"))
 model.eval()
 
-#x = torch.ones((1, 3, 224, 224))
-#model.forward(x)
+#layer_input = (torch.randint(low=0, high=2, size=resnet10_layer_input_shape_map["conv2_1"]).float()-0.5)
+layer_input = torch.rand(resnet10_layer_input_shape_map["conv2_1"])-0.5
+
+block_output = list(model.modules())[6](layer_input)
+print(compile_utils.convert_conv_act(block_output, binarize=False))
 
 layers_list = list(model.modules())
-layer_input = (torch.randint(low=0, high=2, size=resnet10_layer_input_shape_map["conv2_1"]).float()-0.5)
-#layer_input = layers_list[resnet10_layer_index_map["conv" + "2_1"]](layer_input)
-#layer_input = layers_list[resnet10_layer_index_map["bn" + "2_1"]](layer_input)
-#print(layer_input)
 for layer in ["2_1", "2_2"]: #resnet10_conv_layers:
     compile_utils.compile_conv_block(layers_list[resnet10_layer_index_map["conv" + layer]], layers_list[resnet10_layer_index_map["bn" + layer]], layer_input, label=layer, save_to="/home/sravit/3pxnet/3pxnet-inference/examples/conv" + layer + ".h", print_=False)
     layer_input = layers_list[resnet10_layer_index_map["conv" + layer]](layer_input)

@@ -40,7 +40,7 @@ def Binarize(tensor,quant_mode='det',bitwidth=1):
         temp = torch.floor(tensor.mul_(2**bitwidth).div_(2)).mul_(2).add_(1).mul_(tensor).div_(tensor).div_(2**bitwidth)
         #temp = torch.floor(tensor_clone.mul_(2**bitwidth).div_(2)).mul_(2).add_(1).mul_(tensor_clone).div_(tensor_clone).div_(2**bitwidth)
         temp[temp!=temp]=0
-        temp[temp==0] = 1/(torch.pow(2, bitwidth))
+        temp[temp==0] = 1/(torch.pow(torch.tensor(2.), bitwidth))
         return temp
     elif quant_mode=='riptide':
         if bitwidth==1:
@@ -300,7 +300,7 @@ class BinarizeConv2d(nn.Conv2d):
 
     def forward(self, input):
         mask = [None]*self.input_bit
-        input.data = Binarize(input.data,quant_mode='multi',bitwidth=self.input_bit)
+        input_bin = Binarize(input.data,quant_mode='multi',bitwidth=self.input_bit)
         #input.data = force_pack(input.data,self.input_bit)
         self.weight.data=torch.clamp(Binarize(self.weight_org.clone(), quant_mode="multi", bitwidth=self.weight_bit), min=-0.99, max=0.99)
         '''
@@ -321,7 +321,7 @@ class BinarizeConv2d(nn.Conv2d):
             mask[i+1] = self.gt(torch.sigmoid((self.threshold[i + 1] - out)), 0.5)*mask[i]
             """ perform LSB convolution """
         '''
-        out = nn.functional.conv2d(input, self.weight, None, self.stride,self.padding, self.dilation, self.groups)
+        out = nn.functional.conv2d(input_bin, self.weight, None, self.stride,self.padding, self.dilation, self.groups)
         #self.exp=True
         #if self.exp:
         #    now=datetime.now().time()

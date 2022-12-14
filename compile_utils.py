@@ -50,13 +50,14 @@ def convert_bn_float(mu, sigma, gamma, beta):
 
 def compile_conv_block(conv_layer, bn_layer, x, label, print_=True, save_to=None, pool_layer=None):
     #y = conv_block.forward(x)
-    
+  
     conv1_out = conv_layer(x)
     if pool_layer:
         conv1_out = pool_layer(conv1_out)
     conv1_out_bn = bn_layer(conv1_out)
     y = conv1_out_bn
 
+    x_no_bin_inf = convert_conv_act(x, binarize=False)
     x_inf = convert_conv_act(x, binarize=True)
     w_inf = convert_conv_weight(conv_layer.weight)
     mu, sigma, gamma, beta = bn_layer.running_mean.detach().clone(), bn_layer.running_var.detach().clone(), bn_layer.weight.detach().clone(), bn_layer.bias.detach().clone()
@@ -92,7 +93,7 @@ def compile_conv_block(conv_layer, bn_layer, x, label, print_=True, save_to=None
             f.write("#define gamma_" + label + " {\\\n\t" + str(gamma_inf)[1:-1] + "\\\n};\n")
             f.write("#define beta_" + label + " {\\\n\t" + str(beta_inf)[1:-1] + "\\\n};\n")
             
-            f.write("#define input_" + label + " {\\\n\t" + str(x_inf)[1:-1] + "\\\n};\n")
+            f.write("#define input_" + label + " {\\\n\t" + str(x_no_bin_inf)[1:-1] + "\\\n};\n")
             f.write("#define input_" + label + "_pack {\\\n\t" + str(x_inf_pack) + "\\\n};\n")
             f.write("#define output_" + label + " {\\\n\t" + str([float("{:.2f}".format(e)) for e in y_no_bin_inf])[1:-1] + "\\\n};\n")
             f.write("#define output_" + label + "_pack {\\\n\t" + str(y_inf_pack) + "\\\n};\n")
