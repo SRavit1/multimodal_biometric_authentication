@@ -135,7 +135,8 @@ class BasicBlock(nn.Module):
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv3x3(inplanes, planes, layer_prec_config, stride=stride)
+        self.conv1 = conv3x3(inplanes, planes, layer_prec_config, stride=1)
+        self.pool1 = torch.nn.MaxPool2d(stride, stride) if stride!=1 else None
         self.bn1 = norm_layer(planes)
         #removed inplace due to error from torch 1.9
         self.act = binarized_modules.get_activation(self.activation_type, input_shape=(1, planes, 1, 1), leaky_relu_slope=self.leaky_relu_slope)
@@ -146,13 +147,16 @@ class BasicBlock(nn.Module):
         self.bn3 = norm_layer(planes)
 
     def forward(self, x: Tensor) -> Tensor:
+        import compile_utils
+
         #identity = x
         identity = x.clone()
         #identity.retain_grad()
         
         out = self.conv1(x)
+        if self.pool1 is not None:
+            out = self.pool1(out)
         out = self.bn1(out)
-
         out = self.act(out)
         
         out = self.conv2(out)
@@ -160,7 +164,7 @@ class BasicBlock(nn.Module):
 
         if self.downsample is not None:
             identity = self.downsample(identity)
-            identity = self.bn3(identity)
+            #identity = self.bn3(identity)
 
         out += identity
         out = self.act(out)
@@ -248,7 +252,7 @@ class ResNet(nn.Module):
         self,
         block: Type[Union[BasicBlock, Bottleneck]],
         layers: List[int],
-        num_classes: int = 128,
+        num_classes: int = 512,
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
@@ -403,8 +407,15 @@ class ResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
+            """
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, layer_prec_config, stride),
+                norm_layer(planes * block.expansion),
+            )
+            """
+            downsample = nn.Sequential(
+                conv1x1(self.inplanes, planes * block.expansion, layer_prec_config, 1),
+                torch.nn.MaxPool2d(stride, stride),
                 norm_layer(planes * block.expansion),
             )
 
@@ -443,11 +454,11 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x)
-        x = self.bn2(x)
-        x = self.act2(x)
+        #x = self.bn2(x)
+        #x = self.act2(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
-        x = self.bn3(x)
+        #x = self.bn3(x)
 
         #TODO: Add batchnorm
         if self.normalize_output:

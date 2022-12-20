@@ -137,6 +137,8 @@ class BWLinear(nn.Linear):
         self.weight.data=torch.clamp(weight_data,min=-0.99,max=0.99)
         self.weight_org = weight_org_clone #weight_org modified by Binarize function, we want it to stay the same
         out = nn.functional.linear(input, self.weight)
+        out *= 2 # weights supposed to be 1 and -1 not 0.5 and -0.5, so compensating here
+        
         if not self.bias is None:
             self.bias.org=self.bias.data.clone()
             out += self.bias.view(1, -1).expand_as(out)
@@ -300,7 +302,7 @@ class BinarizeConv2d(nn.Conv2d):
 
     def forward(self, input):
         mask = [None]*self.input_bit
-        input_bin = Binarize(input.data,quant_mode='multi',bitwidth=self.input_bit)
+        input.data = Binarize(input.data,quant_mode='multi',bitwidth=self.input_bit)
         #input.data = force_pack(input.data,self.input_bit)
         self.weight.data=torch.clamp(Binarize(self.weight_org.clone(), quant_mode="multi", bitwidth=self.weight_bit), min=-0.99, max=0.99)
         '''
@@ -321,7 +323,7 @@ class BinarizeConv2d(nn.Conv2d):
             mask[i+1] = self.gt(torch.sigmoid((self.threshold[i + 1] - out)), 0.5)*mask[i]
             """ perform LSB convolution """
         '''
-        out = nn.functional.conv2d(input_bin, self.weight, None, self.stride,self.padding, self.dilation, self.groups)
+        out = nn.functional.conv2d(input, self.weight, None, self.stride,self.padding, self.dilation, self.groups)
         #self.exp=True
         #if self.exp:
         #    now=datetime.now().time()

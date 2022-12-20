@@ -50,7 +50,7 @@ def convert_bn_float(mu, sigma, gamma, beta):
 
 def compile_conv_block(conv_layer, bn_layer, x, label, print_=True, save_to=None, pool_layer=None):
     #y = conv_block.forward(x)
-  
+    
     conv1_out = conv_layer(x)
     if pool_layer:
         conv1_out = pool_layer(conv1_out)
@@ -107,9 +107,53 @@ def compile_conv_block(conv_layer, bn_layer, x, label, print_=True, save_to=None
 
     return x_inf, w_inf, bn_th_inf, bn_sign_inf, bn_sign_inf_pack, y_inf
 
+#inputs: layer_input, layer_input_clone, save_path, resnet10_layer_index_map
+#outputs: layer_input_clone
+def compile_identity_block(layer_input, block_layers, layers_list, resnet10_layer_index_map, save_path="/home/sravit/3pxnet/3pxnet-inference/examples/conv"):
+    layer_input_clone = layer_input.clone()
+    for layer in block_layers: #resnet10_conv_layers:
+        conv_layer = layers_list[resnet10_layer_index_map["conv" + layer]]
+        bn_layer = layers_list[resnet10_layer_index_map["bn" + layer]]
+        pool_layer = layers_list[resnet10_layer_index_map["pool" + layer]] if ("pool" + layer) in list(resnet10_layer_index_map.keys()) else None
+        compile_conv_block(conv_layer, bn_layer, layer_input, label=layer, save_to=save_path + layer + ".h", print_=False)
+        layer_input = conv_layer(layer_input)
+        layer_input = bn_layer(layer_input)
+        if layer[-2:]=="_1":
+            layer_input = torch.nn.functional.relu(layer_input)
+    layer_input += layer_input_clone
+    layer_input = torch.nn.functional.relu(layer_input)
+    return layer_input
+
+def compile_residual_block(layer_input, identity_layers, residual_layers, layers_list, resnet10_layer_index_map, save_path="/home/sravit/3pxnet/3pxnet-inference/examples/conv"):
+    layer_input_clone = layer_input.clone()
+    for layer in identity_layers: #resnet10_conv_layers:
+        conv_layer = layers_list[resnet10_layer_index_map["conv" + layer]]
+        bn_layer = layers_list[resnet10_layer_index_map["bn" + layer]]
+        pool_layer = layers_list[resnet10_layer_index_map["pool" + layer]] if ("pool" + layer) in list(resnet10_layer_index_map.keys()) else None
+        compile_conv_block(conv_layer, bn_layer, layer_input, pool_layer=pool_layer, label=layer, save_to=save_path + layer + ".h", print_=False)
+        layer_input = conv_layer(layer_input)
+        if pool_layer:
+            layer_input = pool_layer(layer_input)
+        layer_input = bn_layer(layer_input)
+        if layer[-2:]=="_1":
+            layer_input = torch.nn.functional.relu(layer_input)
+    for layer in residual_layers:
+        conv_layer = layers_list[resnet10_layer_index_map["conv" + layer]]
+        bn_layer = layers_list[resnet10_layer_index_map["bn" + layer]]
+        pool_layer = layers_list[resnet10_layer_index_map["pool" + layer]] if ("pool" + layer) in list(resnet10_layer_index_map.keys()) else None
+        compile_conv_block(conv_layer, bn_layer, layer_input_clone, pool_layer=pool_layer, label=layer, save_to=save_path + layer + ".h", print_=False)
+        layer_input_clone = conv_layer(layer_input_clone)
+        if pool_layer:
+            layer_input_clone = pool_layer(layer_input_clone)
+        layer_input_clone = bn_layer(layer_input_clone)
+    #print(compile_utils.convert_conv_act(layer_input_clone, binarize=False)[-20:])
+    layer_input += layer_input_clone
+    layer_input = torch.nn.functional.relu(layer_input)
+    return layer_input
+
 def compile_fc_block(fc_layer, bn_layer, x, print_=True, binarize_output=True):
     y = fc_layer.forward(x)
-    y = bn_layer(y)
+    y = bn_layer(y) if bn_layer is not None else y
 
     x_inf = convert_fc_act(x)
     w_inf = convert_fc_weight(fc_layer.weight)
@@ -134,3 +178,30 @@ def compile_fc_block(fc_layer, bn_layer, x, print_=True, binarize_output=True):
         print("y", y_inf_pack, y_inf)
 
     return mu, sigma, gamma, beta, bn_th_inf, bn_sign_inf, bn_sign_inf_pack, y_inf, y_inf_pack, x_inf, x_inf_pack, w_inf, w_inf_pack
+
+def compile_bwn_fc(fc_layer, x, label, print_=True, save_to="/home/sravit/3pxnet/3pxnet-inference/examples/"+"fc.h"):
+    y = fc_layer.forward(x)
+
+    x_inf = convert_fc_act(x, binarize=False)
+    w_inf = convert_fc_weight(fc_layer.weight)
+    y_inf = convert_fc_act(y, binarize=False)
+
+    w_inf_pack = pack(w_inf)
+
+    if print_:
+        print("x", x_inf)
+        print("w", w_inf_pack, w_inf)
+        print("y", y_inf)
+    
+    if save_to is not None:
+        with open(save_to, 'w') as f:
+            f.write("#define F" + label + "I " + str(x.shape[1]) + "\n")
+            f.write("#define F" + label + "O " + str(y.shape[1]) + "\n")
+            
+            f.write("#define weight_" + label + " {\\\n\t" + str(w_inf)[1:-1] + "\\\n};\n")
+            f.write("#define weight_" + label + "_pack {\\\n\t" + str(w_inf_pack) + "\\\n};\n")
+            
+            f.write("#define input_" + label + " {\\\n\t" + str(x_inf)[1:-1] + "\\\n};\n")
+            f.write("#define output_" + label + " {\\\n\t" + str([float("{:.2f}".format(e)) for e in y_inf])[1:-1] + "\\\n};\n")
+            
+    return y
