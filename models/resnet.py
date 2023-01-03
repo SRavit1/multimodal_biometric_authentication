@@ -329,7 +329,7 @@ class ResNet(nn.Module):
         elif conv1_config["q_scheme"] == "clamp_float":
             self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "bwn":
-            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=1, stride=1, padding=0, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "xnor":
             self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "fp":
