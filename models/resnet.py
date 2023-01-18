@@ -147,12 +147,12 @@ class BasicBlock(nn.Module):
         self.bn3 = norm_layer(planes)
 
     def forward(self, x: Tensor) -> Tensor:
-        import compile_utils
-
         #identity = x
         identity = x.clone()
         #identity.retain_grad()
         
+        #print("Block input", identity.flatten()[-10:])
+
         out = self.conv1(x)
         if self.pool1 is not None:
             out = self.pool1(out)
@@ -169,6 +169,7 @@ class BasicBlock(nn.Module):
         out += identity
         out = self.act(out)
 
+        #print("Block output:", out.flatten()[-10:])
         return out
 
 
@@ -329,7 +330,7 @@ class ResNet(nn.Module):
         elif conv1_config["q_scheme"] == "clamp_float":
             self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "bwn":
-            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=1, stride=1, padding=0, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=0, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "xnor":
             self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "fp":
@@ -446,12 +447,16 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.maxpool(x)
         x = self.bn1(x)
-        x = self.act1(x)
+        #x = self.act1(x)
 
         x = self.layer1(x)
+        #print("layer 1 output:", x.flatten()[-10:])
         x = self.layer2(x)
+        #print("layer 2 output:", x.flatten()[-10:])
         x = self.layer3(x)
+        #print("layer 3 output:", x.flatten()[-10:])
         x = self.layer4(x)
+        #print("layer 4 output:", x.flatten()[-10:])
 
         x = self.avgpool(x)
         #x = self.bn2(x)

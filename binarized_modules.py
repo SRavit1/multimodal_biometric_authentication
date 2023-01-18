@@ -40,7 +40,7 @@ def Binarize(tensor,quant_mode='det',bitwidth=1):
         temp = torch.floor(tensor.mul_(2**bitwidth).div_(2)).mul_(2).add_(1).mul_(tensor).div_(tensor).div_(2**bitwidth)
         #temp = torch.floor(tensor_clone.mul_(2**bitwidth).div_(2)).mul_(2).add_(1).mul_(tensor_clone).div_(tensor_clone).div_(2**bitwidth)
         temp[temp!=temp]=0
-        temp[temp==0] = 1/(torch.pow(torch.tensor(2.), bitwidth))
+        temp[temp==0] = 1/(torch.pow(torch.tensor(2.).to(temp.get_device()), bitwidth))
         return temp
     elif quant_mode=='riptide':
         if bitwidth==1:
