@@ -135,8 +135,8 @@ class BasicBlock(nn.Module):
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv3x3(inplanes, planes, layer_prec_config, stride=1)
-        self.pool1 = torch.nn.MaxPool2d(stride, stride) if stride!=1 else None
+        self.conv1 = conv3x3(inplanes, planes, layer_prec_config, stride=stride)
+        self.pool1 = None #torch.nn.MaxPool2d(stride, stride) if stride!=1 else None
         self.bn1 = norm_layer(planes)
         #removed inplace due to error from torch 1.9
         self.act = binarized_modules.get_activation(self.activation_type, input_shape=(1, planes, 1, 1), leaky_relu_slope=self.leaky_relu_slope)
@@ -164,7 +164,7 @@ class BasicBlock(nn.Module):
 
         if self.downsample is not None:
             identity = self.downsample(identity)
-            #identity = self.bn3(identity)
+            identity = self.bn3(identity)
 
         out += identity
         out = self.act(out)
@@ -415,8 +415,8 @@ class ResNet(nn.Module):
             )
             """
             downsample = nn.Sequential(
-                conv1x1(self.inplanes, planes * block.expansion, layer_prec_config, 1),
-                torch.nn.MaxPool2d(stride, stride),
+                conv1x1(self.inplanes, planes * block.expansion, layer_prec_config, stride),
+                #torch.nn.MaxPool2d(stride, stride),
                 norm_layer(planes * block.expansion),
             )
 
@@ -447,7 +447,7 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.maxpool(x)
         x = self.bn1(x)
-        #x = self.act1(x)
+        x = self.act1(x)
 
         x = self.layer1(x)
         #print("layer 1 output:", x.flatten()[-10:])
@@ -459,11 +459,11 @@ class ResNet(nn.Module):
         #print("layer 4 output:", x.flatten()[-10:])
 
         x = self.avgpool(x)
-        #x = self.bn2(x)
-        #x = self.act2(x)
+        x = self.bn2(x)
+        x = self.act2(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
-        #x = self.bn3(x)
+        x = self.bn3(x)
 
         #TODO: Add batchnorm
         if self.normalize_output:
