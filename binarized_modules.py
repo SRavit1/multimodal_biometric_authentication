@@ -36,11 +36,9 @@ def Binarize(tensor,quant_mode='det',bitwidth=1):
         #tensor_clone = tensor.clone()
         #return tensor.sign()
         #temp = torch.floor(tensor.div_(2)).mul_(2).add_(1).mul_(tensor).div_(tensor)
-        tensor = torch.clamp(tensor, -1+1e-4, 1-1e-4)
         temp = torch.floor(tensor.mul_(2**bitwidth).div_(2)).mul_(2).add_(1).mul_(tensor).div_(tensor).div_(2**bitwidth)
         #temp = torch.floor(tensor_clone.mul_(2**bitwidth).div_(2)).mul_(2).add_(1).mul_(tensor_clone).div_(tensor_clone).div_(2**bitwidth)
         temp[temp!=temp]=0
-        temp[temp==0] = 1/(torch.pow(torch.tensor(2.).to(temp.get_device()), bitwidth))
         return temp
     elif quant_mode=='riptide':
         if bitwidth==1:
@@ -137,8 +135,6 @@ class BWLinear(nn.Linear):
         self.weight.data=torch.clamp(weight_data,min=-0.99,max=0.99)
         self.weight_org = weight_org_clone #weight_org modified by Binarize function, we want it to stay the same
         out = nn.functional.linear(input, self.weight)
-        out *= 2 # weights supposed to be 1 and -1 not 0.5 and -0.5, so compensating here
-        
         if not self.bias is None:
             self.bias.org=self.bias.data.clone()
             out += self.bias.view(1, -1).expand_as(out)
@@ -302,6 +298,7 @@ class BinarizeConv2d(nn.Conv2d):
 
     def forward(self, input):
         mask = [None]*self.input_bit
+        torch.clamp(input.data, -1, 1)
         input.data = Binarize(input.data,quant_mode='multi',bitwidth=self.input_bit)
         #input.data = force_pack(input.data,self.input_bit)
         self.weight.data=torch.clamp(Binarize(self.weight_org.clone(), quant_mode="multi", bitwidth=self.weight_bit), min=-0.99, max=0.99)
