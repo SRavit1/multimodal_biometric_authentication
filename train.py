@@ -106,13 +106,13 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
         if params['optim_params']['scheduler'] in ['ReduceLROnPlateau', 'StepLR']:
             scheduler.step(losses.avg)
 
+        model.eval()
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
-            model.eval()
-            distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
+            distances, labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params, log_dir)
             plot_distances_labels(distances, labels, os.path.join(distances_labels_hists_dir, "distances_labels_epoch_{}.png".format(epoch)), epoch)
             plot_far_frr(thresholds, fprs, tprs, os.path.join(far_frr_curves_dir, "far_frr_epoch_{}.png".format(epoch)), epoch)
             logger.info("Validation EER: {:.4f}".format(float(eer)))
-        
+
         if eer < best_eer:
             is_best = True
             best_eer = eer
@@ -135,13 +135,15 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             checkpoint_path + ".pth",
             best_checkpoint_path + ".pth")
         
+        """
         dummy_input = torch.zeros((1, model.input_channels, params["data_params"]["input_dim"], params["data_params"]["input_dim"]))        
         if params["optim_params"]['use_gpu']:
             dummy_input = dummy_input.cuda(params["optim_params"]['device'])
         torch.onnx.export(model, dummy_input, checkpoint_path + ".onnx")
         if is_best:
             shutil.copyfile(checkpoint_path + ".onnx", best_checkpoint_path + ".onnx")
-
+        """
+        
 def main():
     # *********************** process config ***********************
     parser = argparse.ArgumentParser(description="")
@@ -235,7 +237,10 @@ def main():
         logger.info('Load pretrained model from {}'.format(params["exp_params"]["pretrained"]))
         checkpoint = torch.load(params["exp_params"]["pretrained"], map_location=lambda storage, loc: storage)
         state_dict = checkpoint["state_dict"]
-        model.load_state_dict(state_dict, strict=False)
+        try:
+            model.load_state_dict(state_dict, strict=False)
+        except:
+            pass
         if "classifier_state_dict" in checkpoint.keys():
             classifier_state_dict = checkpoint["classifier_state_dict"]
             classifier.load_state_dict(classifier_state_dict)
@@ -244,7 +249,7 @@ def main():
                 p.weight_org.copy_(p.weight.data.clamp_(-1,1))
 
     if args.validate:
-        all_distances, all_labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params)
+        all_distances, all_labels, fprs, tprs, thresholds, eer = evaluate_single_modality(model, val_loader, params, log_dir)
         print("Validation EER on {} dataset: {:.2f}".format(params["data_params"]["val_dataset"], eer))
         exit(0)
 

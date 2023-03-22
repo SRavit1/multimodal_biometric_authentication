@@ -6,8 +6,8 @@ import configparser
 log_pardir = "/home/sravit/multimodal/multimodal_biometric_authentication/exp/face"
 
 all_metrics = {
-    "Floating point 224x224 input": {
-        "log_name": "face_2022-08-05-19-46-41",
+    "R10 Int8": {
+        "log_name": "face_2023-03-11-14-07-01",
         "Epoch": [],
         "Val Epoch": [],
         "Loss": [],
@@ -16,8 +16,18 @@ all_metrics = {
         "LR": [],
         "EER": []
     },
-    "Floating point 56x56 input": {
-        "log_name": "face_2022-08-05-19-40-02",
+    "R14 XNOR 2/1": {
+        "log_name": "face_2023-03-11-14-12-50",
+        "Epoch": [],
+        "Val Epoch": [],
+        "Loss": [],
+        "Top1": [],
+        "Top5": [],
+        "LR": [],
+        "EER": []
+    },
+    "R18 XNOR 2/1": {
+        "log_name": "face_2023-03-11-14-12-52",
         "Epoch": [],
         "Val Epoch": [],
         "Loss": [],
@@ -29,7 +39,7 @@ all_metrics = {
 }
 
 
-log_vis_path = os.path.join(log_pardir, "vis", "56vs224")
+log_vis_path = os.path.join(log_pardir, "vis", "xnor_training_0311")
 if not os.path.exists(log_vis_path):
     os.mkdir(log_vis_path)
 
@@ -62,14 +72,14 @@ for modelName in all_metrics.keys():
     with open(log_path, 'r') as f:
         metrics = all_metrics[modelName]
         for line in f.readlines():
-            if "3100/3125" in line:
+            if "3100/3125" in line or "7800/7813" in line:
                 metrics["Epoch"].append(epoch_counter)
                 metrics["Loss"].append(float(line.split("Loss")[1].split(")")[0].split("(")[1]))
                 metrics["Top1"].append(float(line.split("Acc@1")[1].split(")")[0].split("(")[1]))
                 metrics["Top5"].append(float(line.split("Acc@5")[1].split(")")[0].split("(")[1]))
                 epoch_counter += 1
             elif "LR" in line:
-                metrics["LR"].append(float(line.split(" ")[-1][:-3]))
+                metrics["LR"].append(float(line.split(" ")[-1][:-2]))
             elif "Validation EER" in line:
                 metrics["EER"].append(float(line.split(" ")[-1]))
                 metrics["Val Epoch"].append(val_epoch_counter)

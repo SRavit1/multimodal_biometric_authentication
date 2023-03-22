@@ -274,3 +274,17 @@ class FaceDataset(Dataset):
 
     def __len__(self):
         return self.length
+
+
+class Vox1CorrelationDataset(Dataset):
+    def __init__(self, vox1_dir, random_transform=False, dim=224):
+        super(Vox1CorrelationDataset, self).__init__()
+        self.vox1_dir = vox1_dir
+        self.random_transform = random_transform
+        self.dim = dim
+        print("Using VoxCeleb1 correlation dataset")
+
+        with open(self.file, 'r') as f:
+            self.dataset = [line[:-1].split(" ") for line in f.readlines()]
+            self.dataset = [[int(entry[0]), entry[1], entry[2]] for entry in self.dataset]
+        self.length = len(self.dataset)

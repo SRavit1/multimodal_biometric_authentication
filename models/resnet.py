@@ -129,7 +129,7 @@ class BasicBlock(nn.Module):
         self.bias=layer_prec_config["bias"] if "bias" in layer_prec_config.keys() else None
 
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = binarized_modules.BatchNorm2d_int8 #nn.BatchNorm2d
         if groups != 1 or base_width != 64:
             raise ValueError("BasicBlock only supports groups=1 and base_width=64")
         if dilation > 1:
@@ -204,7 +204,7 @@ class Bottleneck(nn.Module):
         self.bias=layer_prec_config["bias"] if "bias" in layer_prec_config.keys() else None
         
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = binarized_modules.BatchNorm2d_int8 #nn.BatchNorm2d
         width = int(planes * (base_width / 64.0)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width, layer_prec_config)
@@ -267,7 +267,7 @@ class ResNet(nn.Module):
 
         self.block = block
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = binarized_modules.BatchNorm2d_int8 #nn.BatchNorm2d
         self._norm_layer = norm_layer
         self.layers = layers
         self.num_classes = num_classes
@@ -295,7 +295,7 @@ class ResNet(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            elif isinstance(m, (binarized_modules.BatchNorm2d_int8, nn.GroupNorm)): #nn.BatchNorm2d
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
@@ -326,21 +326,21 @@ class ResNet(nn.Module):
 
         conv1_config = self.prec_config["conv1"]
         if conv1_config["q_scheme"] == "float":
-            self.conv1 = nn.Conv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
+            self.conv1 = nn.Conv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=0, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "clamp_float":
-            self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.ClampFloatConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=0, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "bwn":
             self.conv1 = binarized_modules.BWConv2d(conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=0, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "xnor":
-            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"])
+            self.conv1 = binarized_modules.BinarizeConv2d(conv1_config["act_bw"], conv1_config["act_bw"], conv1_config["weight_bw"], self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=0, bias=conv1_config["bias"])
         elif conv1_config["q_scheme"] == "fp":
-            self.conv1 = binarized_modules.QuantizeConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
+            self.conv1 = binarized_modules.QuantizeConv2d(self.input_channels, self.inplanes, kernel_size=7, stride=1, padding=0, bias=conv1_config["bias"], bitwidth=conv1_config["act_bw"], weight_bitwidth=conv1_config["weight_bw"])
         else:
             raise "Invalid conv1 quantization scheme {}".format(conv1_config["q_scheme"])
         
         self.bn1 = self._norm_layer(self.inplanes)
         self.act1 = binarized_modules.get_activation(conv1_config["activation_type"], input_shape=(1, self.inplanes, 1, 1), leaky_relu_slope=conv1_config["leaky_relu_slope"] if "leaky_relu_slope" in conv1_config.keys() else None)
-        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.maxpool = nn.MaxPool2d(kernel_size=4, stride=4, padding=0)
         self.layer1 = self._make_layer(self.block, prec_config["layer1"], 64, self.layers[0])
         self.layer2 = self._make_layer(self.block, prec_config["layer2"], 128, self.layers[1], stride=2, dilate=self.replace_stride_with_dilation[0])
         self.bn_dim = 128
@@ -386,7 +386,7 @@ class ResNet(nn.Module):
             else:
                 raise "Invalid fc quantization scheme {}".format(fc_config["q_scheme"])
 
-        self.bn3 = nn.BatchNorm1d(self.num_classes)
+        self.bn3 = binarized_modules.BatchNorm1d_int8(self.num_classes) #nn.BatchNorm1d(self.num_classes)
 
         if save_weights:
             self.load_state_dict(state_dict, strict=False)
@@ -653,10 +653,10 @@ class Combined_Model(nn.Module):
         spectrogram_embedding = self.speaker_model.forward(spectrogram)
         
         x = torch.cat((face_embedding, spectrogram_embedding), dim=1)
-        x = self.fc1(x)
+        #x = self.fc1(x)
         
         x_norm = torch.sqrt(torch.sum(torch.mul(x,x), dim=1) + self.sqrt_eps)  #torch.linalg.norm(x)
         x_norm = torch.unsqueeze(x_norm, 1)
         x = torch.div(x, x_norm)
 
-        return x
+        return face_embedding, spectrogram_embedding, x

@@ -30,16 +30,12 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 torch.backends.cudnn.deterministic=True
 
+distances_labels_hists_dir = None
+far_frr_curves_dir = None
+
 def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_loader, logger, log_dir, params):
     best_eer = 100
-    distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
-    if not os.path.exists(distances_labels_hists_dir):
-        os.mkdir(distances_labels_hists_dir)
     
-    far_frr_curves_dir = os.path.join(log_dir, "far_frr_curves")
-    if not os.path.exists(far_frr_curves_dir):
-        os.mkdir(far_frr_curves_dir)
-
     logger.info("LR {}".format(optimizer.param_groups[0]['lr']))
 
     ArcFaceLayer = ArcFace()
@@ -75,7 +71,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
                 spectrograms = spectrograms.cuda(params["optim_params"]['device'])
                 labels = labels.cuda(params["optim_params"]['device'])
 
-            embeddings = model.forward(faces, spectrograms)
+            face_emb, speaker_emb, embeddings = model.forward(faces, spectrograms)
             
             if (torch.any(torch.isnan(embeddings))):
                 print("NAN VALUE ENCOUNTERED")
@@ -107,7 +103,7 @@ def train(model, classifier, optimizer, criterion, scheduler, train_loader, val_
             scheduler.step(losses.avg)
 
         if epoch % params["optim_params"]["val_frequency_epoch"] == 0:
-            distances, labels, fprs, tprs, thresholds, eer = evaluate_multimodal(model, val_loader, params)
+            distances, labels, fprs, tprs, thresholds, eer = evaluate_multimodal(model, val_loader, params, log_dir)
             plot_distances_labels(distances, labels, os.path.join(distances_labels_hists_dir, "distances_labels_epoch_{}.png".format(epoch)), epoch)
             plot_far_frr(thresholds, fprs, tprs, os.path.join(far_frr_curves_dir, "far_frr_epoch_{}.png".format(epoch)), epoch)
             logger.info("Validation EER: {:.4f}".format(float(eer)))
@@ -172,6 +168,16 @@ def main():
     os.mkdir(log_dir)
     logger = create_logger(log_dir)
 
+    global distances_labels_hists_dir
+    distances_labels_hists_dir = os.path.join(log_dir, "distances_labels_hists")
+    if not os.path.exists(distances_labels_hists_dir):
+        os.mkdir(distances_labels_hists_dir)
+
+    global far_frr_curves_dir
+    far_frr_curves_dir = os.path.join(log_dir, "far_frr_curves")
+    if not os.path.exists(far_frr_curves_dir):
+        os.mkdir(far_frr_curves_dir)
+
     # write config file to expdir
     store_path = os.path.join(log_dir, args.conf)
     write_conf(config_path, store_path)
@@ -221,7 +227,9 @@ def main():
                 p.weight_org.copy_(p.weight.data.clamp_(-1,1))
 
     if args.validate:
-        all_distances, all_labels, fprs, tprs, thresholds, eer = evaluate_multimodal(model, val_loader, params)
+        distances, labels, fprs, tprs, thresholds, eer = evaluate_multimodal(model, val_loader, params, log_dir, calc_agreement=True)
+        plot_distances_labels(distances, labels, os.path.join(distances_labels_hists_dir, "distances_labels_epoch_eval.png"), 0)
+        plot_far_frr(thresholds, fprs, tprs, os.path.join(far_frr_curves_dir, "far_frr_epoch_eval.png"), 0)
         print("Validation EER on {} dataset: {:.2f}".format(params["data_params"]["val_dataset"], eer))
         exit(0)
 

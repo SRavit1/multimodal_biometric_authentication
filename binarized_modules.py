@@ -99,6 +99,123 @@ def Ternarize(tensor, mult = 0.7, mask = None, permute_list = None, pruned = Fal
         
     return tensor_bin
 
+# https://github.com/nanocad-lab/geo/blob/master/py
+def quantize_shift(tensor, scale=None, scale_only=False):
+    '''
+    Quantize values with a shift to adjust range
+    '''
+    if scale_only:
+        scale = torch.mean(tensor)*2
+        scale = 2**torch.ceil(torch.log2(scale))
+        tensor_quant = torch.ones_like(tensor)*scale
+        return tensor_quant, scale
+    else:
+        if scale is None:
+            scale = torch.mean(tensor)*3
+            scale = 2**torch.ceil(torch.log2(scale))
+        tensor_quant = tensor / scale
+        tensor_quant = (tensor_quant * 128).round().clamp(-127, 127)/128
+        tensor_quant = tensor_quant * scale
+        return tensor_quant, scale
+
+#https://discuss.pytorch.org/t/torch-round-gradient/28628/5
+class cast_int8(torch.autograd.function.InplaceFunction):
+    @staticmethod
+    def forward(ctx, input):
+        ctx.input = input
+        return torch.clamp(input, -128, 127)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_input = grad_output.clone()
+        return grad_input
+
+# https://github.com/nanocad-lab/geo/blob/master/utils_class.py
+class BatchNorm2d_int8(nn.BatchNorm2d):
+    '''
+    Quantized 2d batchnorm
+    '''
+    def __init__(self, *kargs, **kwargs):
+        super(BatchNorm2d_int8, self).__init__(*kargs, **kwargs)
+    def forward(self, x):
+        out = x
+        out = super(BatchNorm2d_int8, self).forward(out)
+        out = cast_int8.apply(out)
+        return out
+
+# https://github.com/nanocad-lab/geo/blob/master/utils_class.py
+class BatchNorm1d_int8(nn.BatchNorm1d):
+    '''
+    Quantized 1d batchnorm
+    '''
+    def __init__(self, *kargs, **kwargs):
+        super(BatchNorm1d_int8, self).__init__(*kargs, **kwargs)
+    def forward(self, x):
+        out = x
+        out = super(BatchNorm1d_int8, self).forward(out)
+        out = cast_int8.apply(out)
+        return out
+
+# https://github.com/nanocad-lab/geo/blob/master/utils_class.py
+class BatchNorm2d_fixed(nn.BatchNorm2d):
+    '''
+    Quantized 2d batchnorm
+    '''
+    def __init__(self, *kargs, **kwargs):
+        super(BatchNorm2d_fixed, self).__init__(*kargs, **kwargs)
+        self.register_buffer('scale', None)
+    def forward(self, x):
+        out = F.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, training=self.training)
+        if self.training:
+            mean = x.mean(dim=(0,2,3))
+            var = x.var(dim=(0,2,3), unbiased=False)
+        else:
+            mean = self.running_mean
+            var = self.running_var
+        if self.affine:
+            weight = self.weight.data
+            bias = self.bias.data
+        else:
+            weight = 1
+            bias = 0
+        w_n = weight/torch.sqrt(var + self.eps)
+        b_n = bias - mean*weight/torch.sqrt(var + self.eps)
+        w_n, self.scale = quantize_shift(w_n.detach())
+        b_n, _ = quantize_shift(b_n.detach(), self.scale)
+        w_n = w_n.reshape(w_n.size(0),1,1)
+        b_n = b_n.reshape(b_n.size(0),1,1)
+        out.data = (x.data*w_n + b_n).to(out.dtype)
+        return out
+    
+# https://github.com/nanocad-lab/geo/blob/master/utils_class.py
+class BatchNorm1d_fixed(nn.BatchNorm1d):
+    '''
+    Quantized 1d batchnorm
+    '''
+    def __init__(self, *kargs, **kwargs):
+        super(BatchNorm1d_fixed, self).__init__(*kargs, **kwargs)
+        self.register_buffer('scale', None)
+    def forward(self, x):
+        out = F.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, training=self.training)
+        if self.training:
+            mean = x.mean(dim=(0))
+            var = x.var(dim=(0), unbiased=False)
+        else:
+            mean = self.running_mean
+            var = self.running_var
+        if self.affine:
+            weight = self.weight.data
+            bias = self.bias.data
+        else:
+            weight = 1
+            bias = 0
+        w_n = weight/torch.sqrt(var + self.eps)
+        b_n = bias - mean*weight/torch.sqrt(var + self.eps)
+        w_n, self.scale = quantize_shift(w_n)
+        b_n, _ = quantize_shift(b_n, self.scale)
+        out.data = (x.data*w_n + b_n).to(out.dtype)
+        return out
+
 class BinarizeLinear(nn.Linear):
 
     def __init__(self, input_bit=1, output_bit=1, weight_bit=1, *kargs, **kwargs):
